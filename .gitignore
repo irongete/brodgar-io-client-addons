@@ -1,0 +1,2 @@
+# LuaJ leaves this behind after `luac -p`
+luac.out

@@ -11,10 +11,11 @@ local REMOVE_WIDTH = 24 -- the X of a row: a Button's own art is 24 wide, and na
 --
 -- The list is saved for the ACCOUNT, so every character picks from the same one. An account table is
 -- filled before this file runs, and it is the table itself: writing into it is saving, and flush() is
--- what puts it on disk right away rather than on the timer.
+-- what puts it on disk right away rather than on the timer. It starts empty: every caption on it is
+-- one the user added.
 local settings = hafen.store():get("settings")
 if settings.labels == nil then
-    settings.labels = {"Pick"}
+    settings.labels = {}
 end
 
 local function save()

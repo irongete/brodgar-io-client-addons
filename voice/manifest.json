@@ -1,0 +1,13 @@
+{
+  "id": "voice",
+  "name": "Voice",
+  "version": "0.1.0",
+  "author": "gonzalo",
+  "description": "Proximity voice over voice.brodgar.io: the link, a page of settings, push-to-talk, voice detection or an open mic, and a mute and a deafen key.",
+  "api_version": "1.0",
+  "files": ["main.lua"],
+  "permissions": ["voice.connect"],
+  "network": {
+    "hosts": ["voice.brodgar.io"]
+  }
+}

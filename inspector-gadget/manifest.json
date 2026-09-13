@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "author": "irongete",
   "description": "A magnifying glass in the action menu. Turn it on and a tooltip beside the pointer says everything the client knows about whatever you are hovering -- an object, or the ground itself. Left-click an object to run the game's own Inspect on it; right-click the ground to put the glass away.",
-  "api_version": 1,
+  "api_version": "1.0",
   "files": [
     "main.lua"
   ],

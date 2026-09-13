@@ -1,8 +1,7 @@
 -- Auto FlowerMenu -- whenever a radial menu opens, picks the first petal on your list that the ring
 -- offers, the instant the ring opens. The list is yours: add any petal caption in
 -- Options > AddOns > Auto FlowerMenu and order it by priority -- the entry nearest the top that the ring
--- offers is the one picked. One key toggles it on or off, per login; assign it in
--- Options > Keybindings > Auto FlowerMenu.
+-- offers is the one picked.
 local ENTRY_WIDTH = 160 -- the field a new caption is typed in
 local ADD_WIDTH = 50 -- the Add button beside it
 local MOVE_WIDTH = 50 -- the Up and Down buttons of a row
@@ -64,6 +63,8 @@ local function swapLabels(firstIndex, secondIndex)
     save()
 end
 
+-- ---------------------------------------------------------------- picking
+--
 -- The list is walked in order, and the first entry the ring offers wins: that is what makes the order
 -- a priority.
 local function labelToPick(petals)
@@ -78,19 +79,12 @@ local function labelToPick(petals)
 end
 
 hafen.event():on("FlowerMenuAdded", function(petals, session)
-    if pausedSessions[session] then
-        return
-    end
     local chosen = labelToPick(petals)
     if chosen == nil then
         return
     end
     -- Decided before the ring's first frame, so a ring that was always going to be picked is never painted.
     session:flowermenu():visible(false):select(chosen)
-end)
-
-hafen.event():on("SessionRemoved", function(session)
-    pausedSessions[session] = nil
 end)
 
 -- ---------------------------------------------------------------- the page
@@ -188,8 +182,6 @@ options:panel(function(root)
     end
     addButton:on("Pressed", addTyped)
     captionEntry:on("Submitted", addTyped)
-
-    hafen.ui():label():parent(root):text("Toggle it per login with the key in Options > Keybindings > Auto FlowerMenu.")
 
     refreshRows(listColumn)
 end)

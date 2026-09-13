@@ -160,7 +160,7 @@ end
 options:panel(function(root)
     root:gap(4)
     hafen.ui():label():parent(root):text("Petals picked automatically, in order of priority:")
-    hafen.ui():label():parent(root):text("the first one on the list that the ring offers is the one picked.")
+    hafen.ui():label():parent(root):text("The first one on the list that the flowermenu offers is the one picked.")
 
     local addRow = hafen.ui():row():gap(4):parent(root)
     local captionEntry = hafen.ui():entry():parent(addRow):size(ENTRY_WIDTH):tooltip(

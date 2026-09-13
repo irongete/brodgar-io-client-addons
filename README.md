@@ -25,7 +25,7 @@ carries its own example.
 | Addon | What it does | Permissions it asks for |
 |---|---|---|
 | `actionbars` | Replaces the client's action bar with as many as the game has slots for: one bar per page of the server's 144, twelve buttons each, flat or upright, drag-and-drop from the action menu and a hotkey per slot | `actionbar.use`, `actionbar.res`, `actionbar.clear` |
-| `auto-pick` | Whenever a radial menu offers a "Pick" petal, picks it automatically | `flowermenu.select` |
+| `auto-flowermenu` | Whenever a radial menu opens, picks the first petal on your list that the ring offers — a list of captions you add and order by priority in Options ▸ AddOns | `flowermenu.select` |
 | `autodrop` | Names a set of items and throws every one of them on the ground the moment it reaches that character's backpack — and what carries a count of its own, seeds above all, only once that count is 50 | `item.drop` |
 | `better-village-controls` | A polity's groups run 0 to 254 while the client draws eight colours, so every colour row that spends the whole of that space grows a picker beside it carrying every group the server takes | `widget.value` |
 | `builder-helper` | Remembers what every building site you have opened still needs, and one key floats each material's have/total over the site | — |

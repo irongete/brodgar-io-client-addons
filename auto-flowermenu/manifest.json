@@ -3,7 +3,7 @@
   "name": "Auto FlowerMenu",
   "version": "1.0.0",
   "author": "irongete",
-  "description": "Whenever a radial menu opens, picks the first petal on your list that the ring offers. The list is yours: add any petal caption in Options > AddOns > Auto FlowerMenu and order it by priority.",
+  "description": "Whenever a Flower Menu opens, picks the first petal on your list that matches. The list is yours: add any petal caption in Options > AddOns > Auto FlowerMenu and order it by priority.",
   "api_version": "1.0",
   "files": ["main.lua"],
   "permissions": ["flowermenu.select"],

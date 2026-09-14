@@ -1,18 +1,15 @@
--- Auto FlowerMenu -- whenever a radial menu opens, picks the first petal on your list that the ring
--- offers, the instant the ring opens. The list is yours: add any petal caption in
--- Options > AddOns > Auto FlowerMenu and order it by priority -- the entry nearest the top that the ring
--- offers is the one picked.
-local ENTRY_WIDTH = 160 -- the field a new caption is typed in
-local ADD_WIDTH = 50 -- the Add button beside it
-local MOVE_WIDTH = 50 -- the Up and Down buttons of a row
-local REMOVE_WIDTH = 24 -- the X of a row: a Button's own art is 24 wide, and narrower clips it
+-- Auto FlowerMenu: when a flowermenu opens, picks the first petal on the user's list that the menu offers.
+-- The list is edited in Options > AddOns > Auto FlowerMenu; the order is the priority.
+
+local ENTRY_WIDTH = 160
+local ADD_WIDTH = 50
+local MOVE_WIDTH = 50
+local REMOVE_WIDTH = 24 -- a Button narrower than 24 clips its art
 
 -- ---------------------------------------------------------------- the list
 --
--- The list is saved for the ACCOUNT, so every character picks from the same one. An account table is
--- filled before this file runs, and it is the table itself: writing into it is saving, and flush() is
--- what puts it on disk right away rather than on the timer. It starts empty: every caption on it is
--- one the user added.
+-- `settings` is a store var: a live table saved in the addon's own file, shared by every account and
+-- character on this client. Writing into it is saving; flush() writes it to disk now instead of on the timer.
 local settings = hafen.store():var("settings")
 if settings.labels == nil then
     settings.labels = {}
@@ -22,7 +19,7 @@ local function save()
     hafen.store():flush()
 end
 
--- A caption is matched whole and without regard to case, exactly as s:flowermenu():select(label) does.
+-- Captions match whole and case-insensitively, the same way flowermenu():select(label) does.
 local function sameCaption(first, second)
     return first:lower() == second:lower()
 end
@@ -37,11 +34,8 @@ local function findLabel(caption)
 end
 
 local function addLabel(caption)
-    caption = caption:match("^%s*(.-)%s*$") -- trimmed: the ring never paints the spaces
-    if caption == "" then
-        return false
-    end
-    if findLabel(caption) then
+    caption = caption:match("^%s*(.-)%s*$")
+    if caption == "" or findLabel(caption) then
         return false
     end
     table.insert(settings.labels, caption)
@@ -54,7 +48,6 @@ local function removeLabel(index)
     save()
 end
 
--- Swapping two neighbours is the whole of reordering: Up swaps with the one above, Down with the one below.
 local function swapLabels(firstIndex, secondIndex)
     local labels = settings.labels
     if labels[firstIndex] == nil or labels[secondIndex] == nil then
@@ -65,9 +58,7 @@ local function swapLabels(firstIndex, secondIndex)
 end
 
 -- ---------------------------------------------------------------- picking
---
--- The list is walked in order, and the first entry the ring offers wins: that is what makes the order
--- a priority.
+
 local function labelToPick(petals)
     for _, wanted in ipairs(settings.labels) do
         for _, petal in ipairs(petals) do
@@ -84,27 +75,23 @@ hafen.event():on("FlowerMenuAdded", function(petals, session)
     if chosen == nil then
         return
     end
-    -- Decided before the ring's first frame, so a ring that was always going to be picked is never painted.
+    -- Hidden before its first frame: a menu that gets picked is never painted.
     session:flowermenu():visible(false):select(chosen)
 end)
 
--- ---------------------------------------------------------------- the page
+-- ---------------------------------------------------------------- the options page
 --
--- Options > AddOns > Auto FlowerMenu. The client hands over a column and rebuilds it on every visit, so
--- nothing built here is kept: the list lives in `settings`, and the rows are built from it each time.
---
--- A button's Pressed handler holds the Options window's tree, and a control is born in the addon layer
--- before :parent() moves it in -- a second tree. So a press changes the list and lets the next step
--- rebuild the rows, holding nothing.
+-- The client rebuilds the page on every visit, so the rows are built from `settings.labels` each time.
+-- Button handlers defer with timer():after(0) so the rows are rebuilt outside the press that triggered it.
 local options = hafen.client():options():addon()
 
-local refreshRows -- forward: a row's buttons rebuild the rows they stand in
+local refreshRows -- defined below; a row's buttons call it
 
 local function buildRow(listColumn, index, label)
     local row = hafen.ui():row():gap(4):parent(listColumn)
 
-    local upButton = hafen.ui():button():parent(row):size(MOVE_WIDTH):text("Up"):tooltip("pick " .. label ..
-                                                                                             " before the one above it")
+    local upButton = hafen.ui():button():parent(row):size(MOVE_WIDTH):text("Up")
+        :tooltip("pick " .. label .. " before the one above it")
     upButton:enabled(index > 1)
     upButton:on("Pressed", function()
         hafen.timer():after(0, function()
@@ -113,8 +100,8 @@ local function buildRow(listColumn, index, label)
         end)
     end)
 
-    local downButton = hafen.ui():button():parent(row):size(MOVE_WIDTH):text("Down"):tooltip("pick " .. label ..
-                                                                                                 " after the one below it")
+    local downButton = hafen.ui():button():parent(row):size(MOVE_WIDTH):text("Down")
+        :tooltip("pick " .. label .. " after the one below it")
     downButton:enabled(index < #settings.labels)
     downButton:on("Pressed", function()
         hafen.timer():after(0, function()
@@ -123,8 +110,8 @@ local function buildRow(listColumn, index, label)
         end)
     end)
 
-    local removeButton = hafen.ui():button():parent(row):size(REMOVE_WIDTH):text("X"):tooltip("take " .. label ..
-                                                                                                  " off the list")
+    local removeButton = hafen.ui():button():parent(row):size(REMOVE_WIDTH):text("X")
+        :tooltip("take " .. label .. " off the list")
     removeButton:on("Pressed", function()
         hafen.timer():after(0, function()
             removeLabel(index)
@@ -132,7 +119,7 @@ local function buildRow(listColumn, index, label)
         end)
     end)
 
-    -- A row keeps every child at its top, and a label is shorter than a button: a top margin centres it.
+    -- A row aligns children to the top; a top margin centres the label against the buttons.
     local nameLabel = hafen.ui():label():parent(row):text(label)
     local labelOffset = math.floor((removeButton:size().h - nameLabel:size().h) / 2)
     nameLabel:rule():margin(0, labelOffset, 0, 0)
@@ -140,8 +127,8 @@ end
 
 refreshRows = function(listColumn)
     if not listColumn:exists() then
-        return
-    end -- the page was left before the step came round
+        return -- the page was closed before the deferred step ran
+    end
 
     for _, child in ipairs(listColumn:children():list()) do
         child:destroy()
@@ -163,8 +150,8 @@ options:panel(function(root)
     hafen.ui():label():parent(root):text("The first one on the list that the flowermenu offers is the one picked.")
 
     local addRow = hafen.ui():row():gap(4):parent(root)
-    local captionEntry = hafen.ui():entry():parent(addRow):size(ENTRY_WIDTH):tooltip(
-        "a petal's caption, as the ring paints it: Pick, Chop, Harvest...")
+    local captionEntry = hafen.ui():entry():parent(addRow):size(ENTRY_WIDTH)
+        :tooltip("a petal's caption, as the menu shows it: Pick, Chop, Harvest...")
     local addButton = hafen.ui():button():parent(addRow):size(ADD_WIDTH):text("Add")
 
     local listColumn = hafen.ui():column():gap(2):parent(root)

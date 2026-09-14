@@ -1,540 +1,872 @@
--- Translator helper -- displays the client in the language you pick, collects every string that language
--- does not name yet, and takes each translation from a text entry. The catalogue is installed the whole
--- time, so a translation is on screen the moment it is saved. What it builds is one catalogue document per
--- language, in the very shape hafen.locale():load(doc) takes -- the file a translation addon ships as
--- <language>.json -- kept in savedata/account/translator-helper.json under the language's code.
+-- Translations: displays the client in the language picked in Options > AddOns > Translations. With the
+-- translation helper on, every string the language does not name yet is collected while you play, and the
+-- translator window is where each one is translated and seen on screen the moment it is saved.
+--
+-- A language is one catalogue document -- text and pattern, the shape hafen.locale():load(doc) takes --
+-- kept as rows of the addon's own file: `languages` names it, `entries` holds its exact entries and
+-- `patterns` its ordered patterns. Export prints the document as one JSON line on the terminal, ready to
+-- be shipped as <language>.json.
 
-local LANGS = {                          -- the option's choices, in this order
-  { name = "English", code = nil  },     -- the client's own words: nothing installed, nothing collected
-  { name = "Spanish", code = "es" },
-  { name = "Russian", code = "ru" },
-  { name = "Chinese", code = "zh" },
-}
-local VIEWS    = { "Pending", "Translated", "Ignored", "All" }
-local MAX_ROWS = 500                     -- the listbox takes 4096; past this the status line says to narrow the filter
-local RESET_AT = 384                     -- re-install before the 512-pair miss set fills and stops recording
-local WIDTH    = 600                     -- the panel's width, pinned, so a long string clips instead of widening it
-local FREE     = { "chat", "chat.mine", "chat.private", "chat.party", "world.nick", "world.speech" }  -- player text
+local ENGLISH = "English" -- the client's own words: no catalogue installed, nothing collected
+local VIEWS = { "Pending", "Translated", "Ignored", "All" }
+local MAX_ROWS = 500 -- the listbox takes 4096; past this the status line asks for a narrower filter
+local RESET_MISSES_AT = 384 -- reinstall before the client's 512-pair miss set fills and stops recording
+local WINDOW_WIDTH = 600 -- pinned, so a long string clips instead of widening the window
+local STATUS_WIDTH = 110 -- bytes of the status line that fit the window
+local BUTTON_WIDTH = 70
+local ADD_WIDTH = 50
+local LANGUAGE_BUTTON_WIDTH = 120
+local OPEN_BUTTON_WIDTH = 150
+local GAP = 6
 
--- The window is drawn by the same client it watches, so its own captions reach the catalogue like any
--- other label. The fixed ones are simply never collected; the rows, the source line and the status line
--- change all the time and would fill the miss set with themselves, so the installed catalogue names them
--- by their shape -- as themselves, and never in the file.
-local MINE = {
-  default = { "Language", "Show", "Filter", "Match", "Pick a row", "collecting",
-              "Pending", "Translated", "Ignored", "All",
-              "English", "Spanish", "Russian", "Chinese",
-              "Language the client displays, and the target of the list",
-              ":translator opens the window",
-              "The toggle key is in Options > Game > Keybindings > Translator helper" },
-  button = { "Pattern", "Save", "Delete", "Ignore", "Restore" },
-  ["window.title"] = { "Translator helper" },
-}
-local MINE_PATTERNS = {
-  { surface = "default", match = "\\[(\\*|[a-z]+(?:\\.[a-z]+)*)\\] (?s)(.*)", text = "[%1$s] %2$s" },
-  { surface = "default", match = "(english|es|ru|zh) -- (?s)(.*)", text = "%1$s -- %2$s" },
+-- What a player wrote is nobody's to translate: these surfaces are drawn as they are and never collected.
+local PLAYER_TEXT_SURFACES = { "chat", "chat.mine", "chat.private", "chat.party", "world.nick", "world.speech" }
+
+-- The translator window and the options page are drawn by the same client they watch, so their captions
+-- reach the catalogue like any other label and would be collected as strings to translate. The fixed ones
+-- are skipped when collecting, by surface; a language name is skipped wherever it is drawn.
+local OWN_CAPTIONS = {
+    default = {
+        "Language", "New language", "Show", "Filter", "Match", "Pick a row", "collecting",
+        "Pending", "Translated", "Ignored", "All", ENGLISH,
+        "Translation helper: collect the strings the language does not name yet",
+        ":translator opens it too.", "A key for it: Options > Game > Keybindings > Translations.",
+        "Delete this language and every translation it holds?",
+    },
+    button = {
+        "Pattern", "Save", "Delete", "Ignore", "Restore", "Add", "Delete language", "Export", "Keep",
+        "Open the translator",
+    },
+    ["window.title"] = { "Translator" },
 }
 
-local opts  = hafen.client():options():addon()
-local names = {}
-for i, l in ipairs(LANGS) do names[i] = l.name end
-local language = opts:choice("language"):choices(names):default("English"):add()
+-- The rows, the source line and the status line change all the time and would fill the miss set with
+-- themselves, so the installed catalogue names them by their shape, drawn as themselves, and the same
+-- shapes are skipped when collecting.
+local OWN_LINE_PATTERNS = {
+    { surface = "default", match = "\\[(\\*|[a-z]+(?:\\.[a-z]+)*)\\] (?s)(.*)", text = "[%1$s] %2$s" },
+    { surface = "default", match = "(\\d+) pending(?s)(.*)", text = "%1$s pending%2$s" },
+}
+
+local function ownLineShape(surface, text)
+    return surface == "default" and (string.find(text, "^%[[%a%.%*]+%] ") ~= nil
+        or string.find(text, "^%d+ pending") ~= nil)
+end
+
+local ownCaptionSet = {} -- surface -> { caption = true }
+for surface, captions in pairs(OWN_CAPTIONS) do
+    ownCaptionSet[surface] = {}
+    for _, caption in ipairs(captions) do
+        ownCaptionSet[surface][caption] = true
+    end
+end
+
+-- ---------------------------------------------------------------- the file
+
+local store = hafen.store()
+local settings = store:var("settings") -- windowOpen: whether the translator was open when the addon last ran
+
+local languagesTable = store:table("languages")
+    :column("name", "text")
+    :key("name")
+    :create()
+local entriesTable = store:table("entries")
+    :column("language", "text"):column("surface", "text"):column("source", "text"):column("translation", "text")
+    :key("language", "surface", "source")
+    :create()
+local patternsTable = store:table("patterns")
+    :column("language", "text"):column("position", "integer")
+    :column("surface", "text"):column("match", "text"):column("text", "text")
+    :key("language", "position")
+    :create()
+
+local languageNames = {} -- every language in the file, sorted
+local languageNameSet = {} -- name -> true
+
+local function readLanguages()
+    languageNames, languageNameSet = {}, {}
+    for _, row in ipairs(languagesTable:list("ORDER BY name COLLATE NOCASE")) do
+        languageNames[#languageNames + 1] = row.name
+        languageNameSet[row.name] = true
+    end
+end
+readLanguages()
+
+local function languageRows() -- the dropdowns' rows: English first, then the languages
+    local rows = { ENGLISH }
+    for _, name in ipairs(languageNames) do
+        rows[#rows + 1] = name
+    end
+    return rows
+end
+
+local function findLanguage(name) -- the stored spelling of a name, compared without regard to case
+    for _, stored in ipairs(languageNames) do
+        if string.lower(stored) == string.lower(name) then
+            return stored
+        end
+    end
+    return nil
+end
+
+-- The current language's document, read from the file when the language is picked and written back row by
+-- row as it is edited: { text = { [surface] = { [source] = translation } }, pattern = { { surface, match, text } } }.
+local function readDocument(languageName)
+    local text = {}
+    for _, row in ipairs(entriesTable:list("WHERE language = ?", languageName)) do
+        if text[row.surface] == nil then
+            text[row.surface] = {}
+        end
+        text[row.surface][row.source] = row.translation
+    end
+    local pattern = {}
+    for _, row in ipairs(patternsTable:list("WHERE language = ? ORDER BY position", languageName)) do
+        pattern[#pattern + 1] = { surface = row.surface, match = row.match, text = row.text }
+    end
+    return { text = text, pattern = pattern }
+end
+
+-- ---------------------------------------------------------------- the options
+
+local options = hafen.client():options():addon()
+local languageOption = options:text("language"):default(ENGLISH):add()
+local helperOption = options:boolean("helper"):default(false):add()
+
+-- ---------------------------------------------------------------- the state
+
+local currentLanguage = nil -- the language installed, nil while English is displayed
+local document = nil -- its document, nil while English is displayed
 
 -- The list is not saved: only a translation is. What the client has drawn since the addon loaded is
 -- collected again as you play, and a string put aside is put aside for this session.
-local strings  = {}                              -- every (surface, text) seen this session: strings[surface][text] = true
-local ignored  = {}                              -- the ones not to translate, the same shape
-local settings = hafen.store():var("settings")   -- where the window stands, and whether it was open
+local seen = {} -- every (surface, text) collected this session: seen[surface][text] = true
+local ignored = {} -- the ones put aside, the same shape
 
-local current                            -- the code in force, nil while English is displayed
-local win, box, entry, source, status, viewBox, filterBox
-local matchLine, matchBox, patternBtn, editLine, deleteBtn, ignoreBtn
-local selected                           -- {surface=, text=} the string the user picked, or {surface=, pattern=} a pattern
-local shownRows, rowKeys = {}, {}        -- the rows on screen, and each row's (surface, text)
-local lastMisses = -1                    -- the miss count the last harvest read, so an unchanged set is not walked
+local window -- the translator window, nil until it is built and after its X
+local listbox, viewDropdown, filterEntry, windowLanguageDropdown, panelLanguageDropdown
+local sourceLabel, statusLabel, matchRow, matchEntry, patternButton
+local editRow, translationEntry, deleteButton, ignoreButton
+local deleteLanguageButton, exportButton
+local confirmWindow -- the "delete this language?" window, while it is up
+local selected -- { surface, text } the string picked, or { surface, pattern } a pattern's own row
+local shownRows, rowKeys = {}, {} -- the rows on screen, and each row's key
+local lastMissCount = -1 -- the miss count the last harvest read, so an unchanged set is not walked
+local refusal -- what the last :load(doc) said no to, for the status line
 
--- ---------------------------------------------------------------- the documents
-
-local function codeOf(name)
-  for _, l in ipairs(LANGS) do
-    if l.name == name then return l.code end
-  end
-  return nil
+local function flagged(set, surface, text)
+    return set[surface] ~= nil and set[surface][text] ~= nil
 end
 
-local function docOf(code)               -- the language's live document, in the store
-  local d = hafen.store():var(code)
-  if not d.text then d.text = {} end
-  return d
-end
-
-local function catalogue(code)           -- what is installed: the document, plus what is not to be collected
-  local d = docOf(code)
-  local text = {}
-  for s, entries in pairs(d.text) do
-    local m = {}
-    for en, tr in pairs(entries) do m[en] = tr end
-    text[s] = m
-  end
-  for s, set in pairs(ignored) do        -- an ignored string is said as itself: drawn unchanged, and never a miss
-    if not text[s] then text[s] = {} end
-    for en in pairs(set) do
-      if text[s][en] == nil then text[s][en] = en end
+local function flag(set, surface, text, on)
+    if on then
+        if set[surface] == nil then
+            set[surface] = {}
+        end
+        set[surface][text] = true
+    elseif set[surface] then
+        set[surface][text] = nil
     end
-  end
-  local pattern = {}
-  for i, p in ipairs(d.pattern or {}) do pattern[i] = p end
-  for _, s in ipairs(FREE) do            -- what a player wrote is nobody's to translate
-    pattern[#pattern + 1] = { surface = s, match = "(?s)(.*)", text = "%1$s" }
-  end
-  for _, p in ipairs(MINE_PATTERNS) do   -- and neither is what this window draws
-    pattern[#pattern + 1] = p
-  end
-  return { text = text, pattern = pattern }
 end
 
-local function shaped(s, t)              -- a row, the source line or the status line, by shape
-  return s == "default" and (string.find(t, "^%[[%a%.%*]+%] ") ~= nil
-    or string.find(t, "^%a+ %-%- ") ~= nil)
+local function ownText(surface, text) -- drawn by this addon's own window or page: never collected
+    return (ownCaptionSet[surface] ~= nil and ownCaptionSet[surface][text] == true)
+        or languageNameSet[text] == true
+        or ownLineShape(surface, text)
 end
 
-local function mine(s, t)                -- a string the window itself draws: never collected
-  local fixed = MINE[s]
-  if fixed then
-    for _, m in ipairs(fixed) do
-      if m == t then return true end
+-- ---------------------------------------------------------------- the catalogue
+
+-- What is installed: the document, plus what is not to be collected.
+local function catalogue()
+    local text = {}
+    for surface, entries in pairs(document.text) do
+        local copy = {}
+        for source, translation in pairs(entries) do
+            copy[source] = translation
+        end
+        text[surface] = copy
     end
-  end
-  return shaped(s, t)
-end
-
-local function purge(set, pred)          -- what an earlier round let into a document
-  for s, bucket in pairs(set) do
-    for t in pairs(bucket) do
-      if pred(s, t) then bucket[t] = nil end
+    for surface, texts in pairs(ignored) do -- an ignored string is drawn as itself, and never misses
+        if text[surface] == nil then
+            text[surface] = {}
+        end
+        for source in pairs(texts) do
+            if text[surface][source] == nil then
+                text[surface][source] = source
+            end
+        end
     end
-  end
-end
-
-local function flagged(set, s, t)
-  return set[s] ~= nil and set[s][t] ~= nil
-end
-
-local function flag(set, s, t, on)
-  if on then
-    if not set[s] then set[s] = {} end
-    set[s][t] = true
-  elseif set[s] then
-    set[s][t] = nil
-  end
-end
-
-local function translation(s, t)         -- the exact entry that answers the string: the surface's, then "*"'s
-  if not current then return nil end
-  local d = docOf(current)
-  local m = d.text[s]
-  if m and m[t] then return m[t] end
-  m = d.text["*"]
-  return m and m[t] or nil
-end
-
-local compiled = {}                      -- match source -> the compiled pattern, or false where regex.lua reads none
-
-local function patternFor(s, t)          -- the first pattern of the language that answers the string, or nil
-  if not current then return nil end
-  for i, p in ipairs(docOf(current).pattern or {}) do
-    if p.surface == s or p.surface == "*" then
-      local prog = compiled[p.match]
-      if prog == nil then
-        prog = regex.compile(p.match) or false
-        compiled[p.match] = prog
-      end
-      if prog and regex.matches(prog, t) then return i end
+    local pattern = {}
+    for index, member in ipairs(document.pattern) do
+        pattern[index] = member
     end
-  end
-  return nil
+    for _, surface in ipairs(PLAYER_TEXT_SURFACES) do
+        pattern[#pattern + 1] = { surface = surface, match = "(?s)(.*)", text = "%1$s" }
+    end
+    for _, member in ipairs(OWN_LINE_PATTERNS) do
+        pattern[#pattern + 1] = member
+    end
+    return { text = text, pattern = pattern }
 end
 
-local refusal                            -- what the last :load(doc) said no to, for the status line
-
-local function reload()                  -- an installed catalogue says the new document at once
-  if not current then return true end
-  local ok, err = pcall(function() hafen.locale():load(catalogue(current)) end)
-  if not ok then
-    refusal = string.gsub(tostring(err), "\nstack traceback:.*$", "")
-    for _ = 1, 3 do                      -- the "@main.lua:162 " a bridge refusal is prefixed with
-      refusal = string.gsub(refusal, "^@?.-%.lua:%d+:?%s*", "")
+local function reload() -- an installed catalogue says the new document at once
+    if currentLanguage == nil then
+        return true
     end
-    hafen.log():write("the " .. current .. " catalogue was refused: " .. refusal)
-  end
-  return ok
+    local ok, failure = pcall(function() hafen.locale():load(catalogue()) end)
+    if not ok then
+        refusal = string.gsub(tostring(failure), "\nstack traceback:.*$", "")
+        for _ = 1, 3 do -- the "@main.lua:162 " a bridge refusal is prefixed with
+            refusal = string.gsub(refusal, "^@?.-%.lua:%d+:?%s*", "")
+        end
+        hafen.log():write("the " .. currentLanguage .. " catalogue was refused: " .. refusal)
+    end
+    return ok
+end
+
+local function translationOf(surface, text) -- the exact entry that answers the string: the surface's, then "*"'s
+    if document == nil then
+        return nil
+    end
+    local entries = document.text[surface]
+    if entries and entries[text] then
+        return entries[text]
+    end
+    entries = document.text["*"]
+    return entries and entries[text] or nil
+end
+
+local compiledPatterns = {} -- match source -> the compiled pattern, or false where regex.lua reads none
+
+local function patternIndexFor(surface, text) -- the first pattern of the language that answers the string, or nil
+    if document == nil then
+        return nil
+    end
+    for index, member in ipairs(document.pattern) do
+        if member.surface == surface or member.surface == "*" then
+            local program = compiledPatterns[member.match]
+            if program == nil then
+                program = regex.compile(member.match) or false
+                compiledPatterns[member.match] = program
+            end
+            if program and regex.matches(program, text) then
+                return index
+            end
+        end
+    end
+    return nil
 end
 
 -- ---------------------------------------------------------------- the rows
 
-local function oneline(t)
-  return (string.gsub(t, "[\r\n]+", " "))
+local function oneLine(text)
+    return (string.gsub(text, "[\r\n]+", " "))
 end
 
-local function clip(s, n)                -- at most n bytes, never cutting a UTF-8 character in two
-  if #s <= n then return s end
-  local cut = n
-  while cut > 1 do
-    local b = string.byte(s, cut + 1)
-    if b == nil or b < 0x80 or b >= 0xC0 then break end
-    cut = cut - 1
-  end
-  return string.sub(s, 1, cut) .. "..."
-end
-
-local function rowOf(s, t)
-  return "[" .. s .. "] " .. oneline(t)
-end
-
-local function patternRow(p)             -- a pattern's own row: its match between slashes
-  return "[" .. p.surface .. "] /" .. oneline(p.match) .. "/"
-end
-
-local function known()                   -- what the list is over: the strings seen this session, and every
-  local all = {}                         -- string the language's document names, seen or not
-  for s, set in pairs(strings) do
-    all[s] = {}
-    for t in pairs(set) do all[s][t] = true end
-  end
-  if current then
-    for s, entries in pairs(docOf(current).text) do
-      if not all[s] then all[s] = {} end
-      for t in pairs(entries) do all[s][t] = true end
+local function clip(text, limit) -- at most limit bytes, never cutting a UTF-8 character in two
+    if #text <= limit then
+        return text
     end
-  end
-  return all
+    local cut = limit
+    while cut > 1 do
+        local byte = string.byte(text, cut + 1)
+        if byte == nil or byte < 0x80 or byte >= 0xC0 then
+            break
+        end
+        cut = cut - 1
+    end
+    return string.sub(text, 1, cut) .. "..."
 end
 
-local function collect()                 -- the rows the view and the filter keep, sorted by surface then text
-  local view   = viewBox and viewBox:value() or "Pending"
-  local needle = string.lower(filterBox and filterBox:value() or "")
-  local all = known()
-  local surfaces = {}
-  for s in pairs(all) do surfaces[#surfaces + 1] = s end
-  table.sort(surfaces)
-  local rows, keys, total = {}, {}, 0
-  local counts = { Pending = 0, Translated = 0, Ignored = 0, Patterns = 0 }
-  local function keep(row, key)
-    if needle == "" or string.find(string.lower(row), needle, 1, true) then
-      total = total + 1
-      if total <= MAX_ROWS then
-        rows[#rows + 1] = row
-        keys[row] = key
-      end
+local function rowOf(surface, text)
+    return "[" .. surface .. "] " .. oneLine(text)
+end
+
+local function patternRow(member) -- a pattern's own row: its match between slashes
+    return "[" .. member.surface .. "] /" .. oneLine(member.match) .. "/"
+end
+
+local function knownStrings() -- the strings seen this session, and every string the language names, seen or not
+    local all = {}
+    for surface, texts in pairs(seen) do
+        all[surface] = {}
+        for text in pairs(texts) do
+            all[surface][text] = true
+        end
     end
-  end
-  if current then                        -- the patterns first, in the order they answer in
-    local pats = docOf(current).pattern or {}
-    counts.Patterns = #pats
-    if view == "All" or view == "Translated" then
-      for i, p in ipairs(pats) do keep(patternRow(p), { surface = p.surface, pattern = i }) end
+    if document then
+        for surface, entries in pairs(document.text) do
+            if all[surface] == nil then
+                all[surface] = {}
+            end
+            for source in pairs(entries) do
+                all[surface][source] = true
+            end
+        end
     end
-  end
-  for _, s in ipairs(surfaces) do
-    local texts = {}
-    for t in pairs(all[s]) do texts[#texts + 1] = t end
-    table.sort(texts)
-    for _, t in ipairs(texts) do
-      local state = flagged(ignored, s, t) and "Ignored"
-        or ((translation(s, t) or patternFor(s, t)) and "Translated" or "Pending")
-      counts[state] = counts[state] + 1
-      if view == "All" or view == state then keep(rowOf(s, t), { surface = s, text = t }) end
+    return all
+end
+
+local function collect() -- the rows the view and the filter keep, sorted by surface then text
+    local view = viewDropdown and viewDropdown:value() or "Pending"
+    local needle = string.lower(filterEntry and filterEntry:value() or "")
+    local all = knownStrings()
+    local surfaces = {}
+    for surface in pairs(all) do
+        surfaces[#surfaces + 1] = surface
     end
-  end
-  return rows, keys, total, counts
+    table.sort(surfaces)
+    local rows, keys, total = {}, {}, 0
+    local counts = { Pending = 0, Translated = 0, Ignored = 0, Patterns = 0 }
+    local function keep(row, key)
+        if needle == "" or string.find(string.lower(row), needle, 1, true) then
+            total = total + 1
+            if total <= MAX_ROWS then
+                rows[#rows + 1] = row
+                keys[row] = key
+            end
+        end
+    end
+    if document then -- the patterns first, in the order they answer in
+        counts.Patterns = #document.pattern
+        if view == "All" or view == "Translated" then
+            for index, member in ipairs(document.pattern) do
+                keep(patternRow(member), { surface = member.surface, pattern = index })
+            end
+        end
+    end
+    for _, surface in ipairs(surfaces) do
+        local texts = {}
+        for text in pairs(all[surface]) do
+            texts[#texts + 1] = text
+        end
+        table.sort(texts)
+        for _, text in ipairs(texts) do
+            local state
+            if flagged(ignored, surface, text) then
+                state = "Ignored"
+            elseif translationOf(surface, text) or patternIndexFor(surface, text) then
+                state = "Translated"
+            else
+                state = "Pending"
+            end
+            counts[state] = counts[state] + 1
+            if view == "All" or view == state then
+                keep(rowOf(surface, text), { surface = surface, text = text })
+            end
+        end
+    end
+    return rows, keys, total, counts
 end
 
 -- The edit line shows what the catalogue says for the picked row: an exact entry (Match empty, the entry
 -- holding the translation), a pattern (Match holding its match, the entry its text), or nothing yet (Match
 -- empty, the entry holding the English). Save writes what the line shows; Delete removes it.
-local function show(k)
-  selected = k
-  if not k then
-    source:text("Pick a row")
-    matchBox:value("")
-    entry:value("")
-    ignoreBtn:text("Ignore"):enabled(false)
-    deleteBtn:enabled(false)
-    patternBtn:enabled(false)
-    return
-  end
-  if not k.text then                     -- a pattern's own row
-    local p = docOf(current).pattern[k.pattern]
-    source:text(clip(patternRow(p), 90))
-    matchBox:value(p.match)
-    entry:value(p.text)
-    ignoreBtn:text("Ignore"):enabled(false)
-    deleteBtn:enabled(true)
-    patternBtn:enabled(false)
-    return
-  end
-  local tr = translation(k.surface, k.text)
-  local pi = (not tr) and patternFor(k.surface, k.text) or nil
-  k.pattern = pi                         -- the pattern that answers this string, if one does: Save edits it
-  source:text(clip(rowOf(k.surface, k.text), 90))   -- the row's own shape, which the catalogue names as itself
-  if pi then
-    local p = docOf(current).pattern[pi]
-    matchBox:value(p.match)
-    entry:value(p.text)
-  else
-    matchBox:value("")
-    entry:value(tr or k.text)
-  end
-  ignoreBtn:text(flagged(ignored, k.surface, k.text) and "Restore" or "Ignore"):enabled(true)
-  deleteBtn:enabled(tr ~= nil or pi ~= nil)          -- there is something to delete
-  patternBtn:enabled(true)
+local function show(key)
+    selected = key
+    if key == nil then
+        sourceLabel:text("Pick a row")
+        matchEntry:value("")
+        translationEntry:value("")
+        ignoreButton:text("Ignore"):enabled(false)
+        deleteButton:enabled(false)
+        patternButton:enabled(false)
+        return
+    end
+    if key.text == nil then -- a pattern's own row
+        local member = document.pattern[key.pattern]
+        sourceLabel:text(clip(patternRow(member), 90))
+        matchEntry:value(member.match)
+        translationEntry:value(member.text)
+        ignoreButton:text("Ignore"):enabled(false)
+        deleteButton:enabled(true)
+        patternButton:enabled(false)
+        return
+    end
+    local translation = translationOf(key.surface, key.text)
+    local patternIndex = (translation == nil) and patternIndexFor(key.surface, key.text) or nil
+    key.pattern = patternIndex -- the pattern that answers this string, if one does: Save edits it
+    sourceLabel:text(clip(rowOf(key.surface, key.text), 90)) -- the row's own shape, which the catalogue names as itself
+    if patternIndex then
+        local member = document.pattern[patternIndex]
+        matchEntry:value(member.match)
+        translationEntry:value(member.text)
+    else
+        matchEntry:value("")
+        translationEntry:value(translation or key.text)
+    end
+    ignoreButton:text(flagged(ignored, key.surface, key.text) and "Restore" or "Ignore"):enabled(true)
+    deleteButton:enabled(translation ~= nil or patternIndex ~= nil)
+    patternButton:enabled(true)
 end
 
-local function refresh(note)             -- note: one line for the status, instead of the counts, this once
-  if not (win and win:exists()) then return end
-  local rows, keys, total, counts = collect()
-  local same = (#rows == #shownRows)
-  if same then
-    for i = 1, #rows do
-      if rows[i] ~= shownRows[i] then same = false; break end
-    end
-  end
-  if not same then
-    local pick = box:value()
-    box:rows(rows)                                   -- replaces the set, and clears the pick with it
-    shownRows, rowKeys = rows, keys
-    if pick and keys[pick] then                      -- ...so it is put back where the row still stands
-      box:value(pick)
-    elseif pick then
-      show(nil)
-    end
-  end
-  editLine:enabled(current ~= nil)
-  matchLine:enabled(current ~= nil)
-  local line = (current or "english") .. " -- " .. counts.Pending .. " pending, " .. counts.Translated
-    .. " translated, " .. counts.Patterns .. " patterns, " .. counts.Ignored .. " ignored"
-  if total > MAX_ROWS then
-    line = line .. " -- showing " .. MAX_ROWS .. " of " .. total .. ": narrow the filter"
-  end
-  if note then line = (current or "english") .. " -- " .. clip(oneline(note), 110) end   -- the same shape
-  status:text(line)
+local function windowUp()
+    return window ~= nil and window:exists()
 end
 
-local function pick(row)                 -- select a row as the user would, and show it
-  if row and rowKeys[row] then
-    box:value(row)
-    show(rowKeys[row])
-  else
-    show(nil)
-  end
+local function refresh(note) -- note: what the status line says instead of the counts, this once
+    if not windowUp() then
+        return
+    end
+    local rows, keys, total, counts = collect()
+    local same = (#rows == #shownRows)
+    if same then
+        for index = 1, #rows do
+            if rows[index] ~= shownRows[index] then
+                same = false
+                break
+            end
+        end
+    end
+    if not same then
+        local picked = listbox:value()
+        listbox:rows(rows) -- replaces the set, and clears the pick with it
+        shownRows, rowKeys = rows, keys
+        if picked and keys[picked] then -- ...so it is put back where the row still stands
+            listbox:value(picked)
+        elseif picked then
+            show(nil)
+        end
+    end
+    local editing = currentLanguage ~= nil
+    editRow:enabled(editing)
+    matchRow:enabled(editing)
+    deleteLanguageButton:enabled(editing)
+    exportButton:enabled(editing)
+    local line = counts.Pending .. " pending, " .. counts.Translated .. " translated, "
+        .. counts.Patterns .. " patterns, " .. counts.Ignored .. " ignored"
+    if total > MAX_ROWS then
+        line = line .. " -- showing " .. MAX_ROWS .. " of " .. total .. ": narrow the filter"
+    end
+    if note then
+        line = counts.Pending .. " pending -- " .. oneLine(note) -- the shape the counts line has
+    end
+    statusLabel:text(clip(line, STATUS_WIDTH))
+end
+
+local function pick(row) -- select a row as the user would, and show it
+    if row and rowKeys[row] then
+        listbox:value(row)
+        show(rowKeys[row])
+    else
+        show(nil)
+    end
 end
 
 local function indexOf(row)
-  for i, r in ipairs(shownRows) do
-    if r == row then return i end
-  end
-  return nil
+    for index, shown in ipairs(shownRows) do
+        if shown == row then
+            return index
+        end
+    end
+    return nil
 end
 
-local function reselect(row, idx)        -- the row itself if it still stands, else the one that took its slot
-  if rowKeys[row] then return pick(row) end
-  local nxt = idx and shownRows[idx] or nil
-  pick(nxt or shownRows[#shownRows])
+local function reselect(row, index) -- the row itself if it still stands, else the one that took its slot
+    if rowKeys[row] then
+        return pick(row)
+    end
+    local following = index and shownRows[index] or nil
+    pick(following or shownRows[#shownRows])
 end
 
 -- ---------------------------------------------------------------- the edits
 
-local function rowOfSelected()           -- the picked row as the list spells it now, and where it stands
-  local row
-  if selected.text then
-    row = rowOf(selected.surface, selected.text)
-  else
-    row = patternRow(docOf(current).pattern[selected.pattern])
-  end
-  return row, indexOf(row)
+local function rowOfSelected() -- the picked row as the list spells it now, and where it stands
+    local row
+    if selected.text then
+        row = rowOf(selected.surface, selected.text)
+    else
+        row = patternRow(document.pattern[selected.pattern])
+    end
+    return row, indexOf(row)
 end
 
-local function settle(row, idx, note)    -- after an edit: the rows, the pick, and the disk
-  refresh(note)
-  reselect(row, idx)
-  hafen.store():flush()
+local function settle(row, index) -- after an edit: the rows and the pick
+    refresh()
+    reselect(row, index)
+end
+
+local function writeEntry(surface, source, translation) -- into the document and the file both
+    if document.text[surface] == nil then
+        document.text[surface] = {}
+    end
+    document.text[surface][source] = translation
+    entriesTable:put{ language = currentLanguage, surface = surface, source = source, translation = translation }
+end
+
+local function removeEntry(surface, source)
+    document.text[surface][source] = nil
+    if next(document.text[surface]) == nil then
+        document.text[surface] = nil
+    end
+    entriesTable:remove(currentLanguage, surface, source)
+end
+
+local function writePatterns() -- the language's whole ordered list, after any change to it
+    store:transaction(function()
+        store:exec("DELETE FROM patterns WHERE language = ?", currentLanguage)
+        for position, member in ipairs(document.pattern) do
+            patternsTable:put{ language = currentLanguage, position = position,
+                               surface = member.surface, match = member.match, text = member.text }
+        end
+    end)
 end
 
 local function save(text)
-  if not (selected and current) or text == "" then return end   -- nothing to say is nothing to save
-  local d = docOf(current)
-  local s, match = selected.surface, matchBox:value()
-  local row, idx = rowOfSelected()
-  if match ~= "" then                    -- a pattern: the one the row shows, or a new one after the last
-    local p = { surface = s, match = match, text = text }
-    local i, before = selected.pattern, nil
-    if not d.pattern then d.pattern = {} end
-    if i then before = d.pattern[i]; d.pattern[i] = p else d.pattern[#d.pattern + 1] = p; i = #d.pattern end
-    if not reload() then                 -- refused: the document goes back as it was, and the status says why
-      if before then d.pattern[i] = before else table.remove(d.pattern, i) end
-      if #d.pattern == 0 then d.pattern = nil end
-      return refresh(refusal)
+    if not (selected and currentLanguage) or text == "" then
+        return -- nothing to say is nothing to save
     end
-    if selected.text then row = rowOf(s, selected.text) else row = patternRow(p) end
-  else
-    if not selected.text then return end -- a pattern's row with its match wiped: nothing to write
-    if not d.text[s] then d.text[s] = {} end
-    d.text[s][selected.text] = text
-    reload()
-  end
-  settle(row, idx)
+    local surface, match = selected.surface, matchEntry:value()
+    local row, index = rowOfSelected()
+    if match ~= "" then -- a pattern: the one the row shows, or a new one after the last
+        local member = { surface = surface, match = match, text = text }
+        local patterns = document.pattern
+        local patternIndex, before = selected.pattern, nil
+        if patternIndex then
+            before = patterns[patternIndex]
+            patterns[patternIndex] = member
+        else
+            patterns[#patterns + 1] = member
+            patternIndex = #patterns
+        end
+        if not reload() then -- refused: the document goes back as it was, and the status line says why
+            if before then
+                patterns[patternIndex] = before
+            else
+                table.remove(patterns, patternIndex)
+            end
+            return refresh(refusal)
+        end
+        writePatterns()
+        if selected.text then
+            row = rowOf(surface, selected.text)
+        else
+            row = patternRow(member)
+        end
+    else
+        if selected.text == nil then
+            return -- a pattern's row with its match wiped: nothing to write
+        end
+        writeEntry(surface, selected.text, text)
+        reload()
+    end
+    settle(row, index)
 end
 
-local function delete()                  -- what answers the row goes; a string stays in the list
-  if not (selected and current) then return end
-  local d = docOf(current)
-  local s = selected.surface
-  local row, idx = rowOfSelected()
-  if selected.pattern then
-    table.remove(d.pattern, selected.pattern)
-    if #d.pattern == 0 then d.pattern = nil end
-  elseif d.text[s] and d.text[s][selected.text] then
-    d.text[s][selected.text] = nil
-  elseif d.text["*"] and d.text["*"][selected.text] then
-    d.text["*"][selected.text] = nil
-  else
-    return
-  end
-  reload()
-  settle(row, idx)
+local function delete() -- what answers the row goes; a string stays in the list
+    if not (selected and currentLanguage) then
+        return
+    end
+    local surface = selected.surface
+    local row, index = rowOfSelected()
+    if selected.pattern then
+        table.remove(document.pattern, selected.pattern)
+        writePatterns()
+    elseif document.text[surface] and document.text[surface][selected.text] then
+        removeEntry(surface, selected.text)
+    elseif document.text["*"] and document.text["*"][selected.text] then
+        removeEntry("*", selected.text)
+    else
+        return
+    end
+    reload()
+    settle(row, index)
 end
 
 local function ignore()
-  if not (selected and selected.text) then return end
-  local s, t = selected.surface, selected.text
-  local row, idx = rowOfSelected()
-  flag(ignored, s, t, not flagged(ignored, s, t))
-  reload()
-  settle(row, idx)
+    if not (selected and selected.text) then
+        return
+    end
+    local surface, text = selected.surface, selected.text
+    local row, index = rowOfSelected()
+    flag(ignored, surface, text, not flagged(ignored, surface, text))
+    reload()
+    settle(row, index)
 end
 
-local function pattern()                 -- start a pattern from the picked string: its English, escaped
-  if not (selected and selected.text) then return end
-  matchBox:value(regex.quote(selected.text))
+local function startPattern() -- start a pattern from the picked string: its English, escaped
+    if not (selected and selected.text) then
+        return
+    end
+    matchEntry:value(regex.quote(selected.text))
+end
+
+local function export() -- the language's document, as one JSON line on the terminal
+    if currentLanguage == nil then
+        return
+    end
+    local exported = { text = document.text }
+    if #document.pattern > 0 then
+        exported.pattern = document.pattern
+    end
+    if next(document.text) == nil and exported.pattern == nil then
+        return refresh("nothing to export yet")
+    end
+    hafen.log():write(currentLanguage .. ".json = " .. hafen.json():encode(exported))
+    refresh("printed on the terminal as " .. currentLanguage .. ".json")
 end
 
 -- ---------------------------------------------------------------- the language
 
-local function apply(name)               -- runs where the option was written, so the window waits for the step
-  current = codeOf(name)
-  lastMisses = -1
-  local loc = hafen.locale()
-  if current then
-    local ok, err = pcall(function() loc:load(catalogue(current)):install() end)
-    if not ok then hafen.log():write("the " .. current .. " catalogue was refused: " .. tostring(err)) end
-  else
-    loc:release()
-  end
-  hafen.timer():after(0, refresh)
+local function syncLanguageDropdown(dropdown) -- the rows and the pick; on the step, since the page's is in a character's tree
+    if dropdown and dropdown:exists() then
+        dropdown:rows(languageRows())
+        dropdown:value(languageOption:value())
+    end
 end
 
-local function harvest()                 -- every second: what missed goes into the list
-  if win and win:exists() and win:visible() then
-    local p = win:position()
-    settings.x, settings.y = p.x, p.y
-  end
-  if not current then return end
-  local loc  = hafen.locale()
-  local info = loc:info()
-  if not info.installed or info.misses == lastMisses then return end
-  local added = 0
-  for _, m in ipairs(loc:miss():list()) do
-    local s, t = m:surface(), m:text()
-    if not flagged(strings, s, t) and not mine(s, t) then
-      flag(strings, s, t, true)
-      added = added + 1
+local function syncLanguageControls()
+    syncLanguageDropdown(panelLanguageDropdown)
+    syncLanguageDropdown(windowLanguageDropdown)
+    refresh()
+end
+
+local function applyLanguage(name) -- runs where the option was written; the controls follow on the step
+    currentLanguage = (name ~= ENGLISH) and name or nil
+    lastMissCount = -1
+    local locale = hafen.locale()
+    if currentLanguage then
+        document = readDocument(currentLanguage)
+        local ok, failure = pcall(function() locale:load(catalogue()):install() end)
+        if not ok then
+            hafen.log():write("the " .. currentLanguage .. " catalogue was refused: " .. tostring(failure))
+        end
+    else
+        document = nil
+        locale:release()
     end
-  end
-  lastMisses = info.misses
-  if info.misses >= RESET_AT then                    -- a fresh round, before the set fills and goes quiet
-    loc:install()
-    lastMisses = 0
-  end
-  if added > 0 then refresh() end
+    hafen.timer():after(0, syncLanguageControls)
+end
+
+local function addLanguage(typed) -- true once the language is in the file and picked
+    local name = string.match(typed, "^%s*(.-)%s*$")
+    if name == "" then
+        return false
+    end
+    if string.lower(name) == string.lower(ENGLISH) or findLanguage(name) then
+        refresh("there is a language called " .. name .. " already")
+        return false
+    end
+    languagesTable:put{ name = name }
+    readLanguages()
+    languageOption:value(name) -- fires Changed: the new language is installed, empty
+    return true
+end
+
+local function deleteLanguage(name) -- the language and every translation it holds, in one write
+    store:transaction(function()
+        store:exec("DELETE FROM entries WHERE language = ?", name)
+        store:exec("DELETE FROM patterns WHERE language = ?", name)
+        languagesTable:remove(name)
+    end)
+    readLanguages()
+    if name == currentLanguage then
+        languageOption:value(ENGLISH) -- fires Changed: the client's own words come back
+    else
+        hafen.timer():after(0, syncLanguageControls)
+    end
+end
+
+local function closeConfirm()
+    if confirmWindow and confirmWindow:exists() then
+        confirmWindow:destroy()
+    end
+    confirmWindow = nil
+end
+
+local function confirmDeleteLanguage() -- a window of its own: the name as its title, Delete and Keep
+    if currentLanguage == nil then
+        return
+    end
+    closeConfirm()
+    local name = currentLanguage
+    local place = window:position()
+    confirmWindow = hafen.ui():window():title(name):position(place.x + 40, place.y + 40)
+    local column = hafen.ui():column():gap(GAP):parent(confirmWindow):position(0, 0)
+    hafen.ui():label():parent(column):text("Delete this language and every translation it holds?")
+    local buttons = hafen.ui():row():gap(GAP):parent(column)
+    local confirmButton = hafen.ui():button():parent(buttons):size(BUTTON_WIDTH):text("Delete")
+    local keepButton = hafen.ui():button():parent(buttons):size(BUTTON_WIDTH):text("Keep")
+    confirmWindow:pack()
+    confirmButton:on("Pressed", function()
+        closeConfirm()
+        deleteLanguage(name)
+    end)
+    keepButton:on("Pressed", closeConfirm)
+end
+
+-- ---------------------------------------------------------------- collecting
+
+local function harvest() -- every second: what missed goes into the list
+    if not helperOption:value() or currentLanguage == nil then
+        return
+    end
+    local locale = hafen.locale()
+    local info = locale:info()
+    if not info.installed or info.misses == lastMissCount then
+        return
+    end
+    local added = 0
+    for _, miss in ipairs(locale:miss():list()) do
+        local surface, text = miss:surface(), miss:text()
+        if not flagged(seen, surface, text) and not ownText(surface, text) then
+            flag(seen, surface, text, true)
+            added = added + 1
+        end
+    end
+    lastMissCount = info.misses
+    if info.misses >= RESET_MISSES_AT then -- a fresh round, before the set fills and goes quiet
+        locale:install()
+        lastMissCount = 0
+    end
+    if added > 0 then
+        refresh()
+    end
 end
 
 -- ---------------------------------------------------------------- the window
 
 local function build()
-  win = hafen.ui():window():title("Translator helper"):position(settings.x or 80, settings.y or 80)
-  local panel = hafen.ui():column():gap(4):parent(win):position(0, 0):size(WIDTH)
+    window = hafen.ui():window():title("Translator"):position(80, 80)
+    local panel = hafen.ui():column():gap(4):parent(window):position(0, 0):size(WINDOW_WIDTH)
 
-  local top = hafen.ui():row():gap(6):parent(panel)
-  hafen.ui():label():parent(top):text("Language")
-  hafen.ui():dropdown():parent(top):size(100):bind(language)
-  hafen.ui():label():parent(top):text("Show")
-  viewBox = hafen.ui():dropdown():parent(top):size(100):rows(VIEWS):value("Pending")
-  hafen.ui():label():parent(top):text("Filter")
-  filterBox = hafen.ui():entry():parent(top):size(180)
+    local topRow = hafen.ui():row():gap(GAP):parent(panel)
+    hafen.ui():label():parent(topRow):text("Language")
+    windowLanguageDropdown = hafen.ui():dropdown():parent(topRow):size(140)
+        :rows(languageRows()):value(languageOption:value())
+    hafen.ui():label():parent(topRow):text("Show")
+    viewDropdown = hafen.ui():dropdown():parent(topRow):size(100):rows(VIEWS):value("Pending")
+    hafen.ui():label():parent(topRow):text("Filter")
+    filterEntry = hafen.ui():entry():parent(topRow):size(180)
 
-  box    = hafen.ui():listbox():parent(panel):size(WIDTH, 260)
-  source = hafen.ui():label():parent(panel):text("Pick a row")
+    local languageRow = hafen.ui():row():gap(GAP):parent(panel)
+    hafen.ui():label():parent(languageRow):text("New language")
+    local newLanguageEntry = hafen.ui():entry():parent(languageRow):size(140)
+    local addButton = hafen.ui():button():parent(languageRow):size(ADD_WIDTH):text("Add")
+    deleteLanguageButton = hafen.ui():button():parent(languageRow):size(LANGUAGE_BUTTON_WIDTH)
+        :text("Delete language"):enabled(false)
+    exportButton = hafen.ui():button():parent(languageRow):size(BUTTON_WIDTH):text("Export"):enabled(false)
 
-  matchLine = hafen.ui():row():gap(6):parent(panel)
-  hafen.ui():label():parent(matchLine):text("Match")
-  matchBox = hafen.ui():entry():parent(matchLine):size(WIDTH - 40 - 70 - 2 * 6)
-  patternBtn = hafen.ui():button():parent(matchLine):size(70):text("Pattern"):enabled(false)
+    listbox = hafen.ui():listbox():parent(panel):size(WINDOW_WIDTH, 260)
+    sourceLabel = hafen.ui():label():parent(panel):text("Pick a row")
 
-  editLine = hafen.ui():row():gap(6):parent(panel)
-  entry = hafen.ui():entry():parent(editLine):size(WIDTH - 3 * 70 - 3 * 6)
-  local saveBtn = hafen.ui():button():parent(editLine):size(70):text("Save")
-  deleteBtn = hafen.ui():button():parent(editLine):size(70):text("Delete"):enabled(false)
-  ignoreBtn = hafen.ui():button():parent(editLine):size(70):text("Ignore"):enabled(false)
+    matchRow = hafen.ui():row():gap(GAP):parent(panel)
+    hafen.ui():label():parent(matchRow):text("Match")
+    matchEntry = hafen.ui():entry():parent(matchRow):size(WINDOW_WIDTH - 40 - BUTTON_WIDTH - 2 * GAP)
+    patternButton = hafen.ui():button():parent(matchRow):size(BUTTON_WIDTH):text("Pattern"):enabled(false)
 
-  status = hafen.ui():label():parent(panel):text("collecting")
-  win:pack()
+    editRow = hafen.ui():row():gap(GAP):parent(panel)
+    translationEntry = hafen.ui():entry():parent(editRow):size(WINDOW_WIDTH - 3 * BUTTON_WIDTH - 3 * GAP)
+    local saveButton = hafen.ui():button():parent(editRow):size(BUTTON_WIDTH):text("Save")
+    deleteButton = hafen.ui():button():parent(editRow):size(BUTTON_WIDTH):text("Delete"):enabled(false)
+    ignoreButton = hafen.ui():button():parent(editRow):size(BUTTON_WIDTH):text("Ignore"):enabled(false)
 
-  viewBox:on("Changed", function() refresh() end)
-  filterBox:on("Changed", function() refresh() end)
-  box:on("Changed", function(row) show(rowKeys[row]) end)
-  entry:on("Submitted", save)
-  matchBox:on("Submitted", function() save(entry:value()) end)   -- Enter in either field saves the line
-  saveBtn:on("Pressed", function() save(entry:value()) end)
-  patternBtn:on("Pressed", pattern)
-  deleteBtn:on("Pressed", delete)
-  ignoreBtn:on("Pressed", ignore)
-  win:on("Close", function()                         -- the X destroys the window: build it again next time
-    win = nil
-    settings.open = false
-  end)
-  refresh()
-end
+    statusLabel = hafen.ui():label():parent(panel):text("collecting")
+    window:pack()
+    window:remember("translator") -- where the user last left it; the client saves it after every drag
 
-local function toggle()                  -- a command or a hotkey holds a tree of the client's: the window waits for the step
-  hafen.timer():after(0, function()
-    if not (win and win:exists()) then
-      build()
-      settings.open = true
-      return
+    windowLanguageDropdown:on("Changed", function(name) languageOption:value(name) end)
+    viewDropdown:on("Changed", function() refresh() end)
+    filterEntry:on("Changed", function() refresh() end)
+    listbox:on("Changed", function(row) show(rowKeys[row]) end)
+
+    local function addTyped()
+        if addLanguage(newLanguageEntry:value()) then
+            newLanguageEntry:value("")
+        end
     end
-    local open = not win:visible()
-    win:visible(open)
-    settings.open = open
-    if open then refresh() end
-  end)
+    addButton:on("Pressed", addTyped)
+    newLanguageEntry:on("Submitted", addTyped)
+    deleteLanguageButton:on("Pressed", confirmDeleteLanguage)
+    exportButton:on("Pressed", export)
+
+    translationEntry:on("Submitted", save)
+    matchEntry:on("Submitted", function() save(translationEntry:value()) end) -- Enter in either field saves the line
+    saveButton:on("Pressed", function() save(translationEntry:value()) end)
+    patternButton:on("Pressed", startPattern)
+    deleteButton:on("Pressed", delete)
+    ignoreButton:on("Pressed", ignore)
+    window:on("Close", function() -- the X destroys the window: it is built again next time
+        closeConfirm()
+        window = nil
+        settings.windowOpen = false
+    end)
+    refresh()
 end
 
-opts:panel(function(root)
-  root:gap(4)
-  hafen.ui():label():parent(root):text("Language the client displays, and the target of the list")
-  hafen.ui():dropdown():parent(root):size(100):bind(language)
-  hafen.ui():label():parent(root):text(":translator opens the window")
-  hafen.ui():label():parent(root):text("The toggle key is in Options > Game > Keybindings > Translator helper")
+local function openWindow() -- on the step: a command, a hotkey and the options page each hold a character's tree
+    if not helperOption:value() then
+        hafen.log():write("the translation helper is off: turn it on in Options > AddOns > Translations")
+        return
+    end
+    if not windowUp() then
+        build()
+    elseif not window:visible() then
+        window:visible(true)
+        refresh()
+    end
+    settings.windowOpen = true
+end
+
+local function toggleWindow()
+    hafen.timer():after(0, function()
+        if windowUp() and window:visible() then
+            window:visible(false)
+            settings.windowOpen = false
+        else
+            openWindow()
+        end
+    end)
+end
+
+helperOption:on("Changed", function(on)
+    if on then
+        if currentLanguage then -- a fresh miss round: the set holds what is drawn from now on
+            hafen.locale():install()
+            lastMissCount = 0
+        end
+    else
+        hafen.timer():after(0, function()
+            closeConfirm()
+            if windowUp() then
+                window:destroy()
+            end
+            window = nil
+        end)
+    end
 end)
 
-language:on("Changed", apply)
-hafen.console():on("translator", toggle)
-hafen.client():options():keybindings():on("toggle", toggle)
+-- ---------------------------------------------------------------- the options page
+
+options:panel(function(root)
+    root:gap(4)
+    hafen.ui():label():parent(root):text("Language")
+    panelLanguageDropdown = hafen.ui():dropdown():parent(root):size(160)
+        :rows(languageRows()):value(languageOption:value())
+    panelLanguageDropdown:on("Changed", function(name) languageOption:value(name) end)
+
+    local helperCheck = hafen.ui():check():parent(root)
+        :text("Translation helper: collect the strings the language does not name yet"):bind(helperOption)
+    local openButton = hafen.ui():button():parent(root):size(OPEN_BUTTON_WIDTH):text("Open the translator")
+        :enabled(helperOption:value())
+    helperCheck:on("Changed", function(on) openButton:enabled(on) end)
+    openButton:on("Pressed", function() hafen.timer():after(0, openWindow) end)
+    hafen.ui():label():parent(root):text(":translator opens it too.")
+    hafen.ui():label():parent(root):text("A key for it: Options > Game > Keybindings > Translations.")
+end)
+
+-- ---------------------------------------------------------------- load
+
+hafen.console():on("translator", toggleWindow)
+hafen.client():options():keybindings():on("translator", toggleWindow)
 hafen.timer():every(1, harvest)
 
-for _, l in ipairs(LANGS) do             -- a "translation" of a row of the list is nobody's: by shape only,
-  if l.code then purge(docOf(l.code).text, shaped) end   -- a caption the game shares with the window stays
+if languageOption:value() ~= ENGLISH and not languageNameSet[languageOption:value()] then
+    languageOption:value(ENGLISH) -- the language it named is not in the file any more
 end
-
-apply(language:value())
-if settings.open then build() end
+languageOption:on("Changed", applyLanguage)
+applyLanguage(languageOption:value())
+if settings.windowOpen and helperOption:value() then
+    build()
+end

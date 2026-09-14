@@ -1,165 +1,171 @@
--- Better village controls -- a colour row picks a group by COLOUR, and the client draws eight of them
--- (BuddyWnd.ncolors). A POLITY's groups run 0..254, and its panels are the rows that spend the whole of
--- that space: the Village and Realm tabs, and the member panel where a person is put in one. Those grow a
--- picker of their own carrying every group the server accepts.
---
--- The picker is a MIRROR, not just a command: it shows the group the row is in -- read straight off the
--- row with `row:value()`, which is the same thing the highlighted square says and the only thing a group
--- above the eighth has -- and picking a number drives the row with `row:value(n)`, which runs the very
--- method a click on a square ends in. So the message that reaches the server is the window's own
--- ("gsel" for the village's row, "perm" for the member's), and this addon never has to know it.
---
--- The picker goes UNDER the colours where there is room and BESIDE them where there is not: the panel is
--- laid out by the server, so what already sits under a row is not this addon's to move.
---
--- And every list that colours a name by group says the same thing about the people in it: the Kin tab's
--- roster and the Village and Realm tabs' "Members and known hearthlings" carry the group's NUMBER at the
--- right edge of each row, because the only thing a row itself says about the group is that colour, and
--- every group above the eighth is drawn in the same one. The number is the row's own list's: a kin's own
--- group in the roster, that polity's group for them in a member list.
+-- Extended village permissions: a polity's groups run 0..254 but the client only draws eight colour squares.
+-- Every colour row that can use the whole range (Village and Realm tabs, and the member panel) gets a
+-- dropdown with all 255 groups. The dropdown mirrors the row (`row:value()`) and drives it (`row:value(n)`),
+-- so the message to the server is the window's own. Member and kin rows also get the group number painted
+-- at their right edge, since every group above the eighth is drawn in the same colour.
 
-local WIDTH = 64    -- design px. The colour row is 160 wide and the panel 263, so the picker fits either way
-local GAP   = 2     -- design px between the colour row and the picker
-local SYNC  = 0.25  -- seconds between two reads of what the rows are showing
+local PICKER_WIDTH = 64 -- design px; the colour row is 160 wide and the panel 263, so it fits under or beside
+local PICKER_GAP = 2 -- design px between the colour row and the picker
+local SYNC_SECONDS = 0.25 -- how often the pickers re-read what their rows show
 
--- The two rows that get NO picker, and why. Both were measured rather than assumed, and neither is a
--- crash: a number above the eighth reaches the server from either of them and comes to nothing there.
---   Landwindow -- the claim window's row picks which of the claim's own permission ROWS is being edited,
--- and a claim holds eight. Watched in both directions: the write leaves carrying the number and the flags
--- it was given (`-> shared 254 = 15`, the same statement that sends a click on a square), the claim
--- reopened pushes back only the rows it kept and never that one, and a character in that group is still
--- refused at the boundary. So a picker there does not offer a capability, it offers a SILENT FAILURE --
--- the ticks stand while the window is open, because this client remembers them, and are gone the next
--- time it is opened.
---   The Kin tab's row -- the kin's OWN group -- the server does keep, 0..254, across a restart. But above
--- the eighth nothing spends it: no colour of its own, and the one place a kin group is read is that same
--- claim table. It is a label, not a setting, and `kin:group(n)` is where an addon that wants one writes it.
--- That row is not in the table below and never could be: it sits inside the kin window, which is not
--- walkable from inside -- `:parent()` answers nil on anything under it, because the window holds this
--- character's hearth secret two branches along. It is turned away by the nil, one branch earlier.
+-- Panels whose colour row gets no picker. Landwindow: a claim holds eight permission rows, so a group
+-- above the eighth is accepted by the server and then dropped. The Kin tab's own row is also skipped, but
+-- it needs no entry here: the kin window is not walkable from inside, so `colourRow:parent()` is nil.
 local NO_PICKER = {Landwindow = true}
 
--- "0" .. "254", built once. Rows are strings, and `Changed` hands back the very one it was given.
-local GROUPS = {}
-for n = 0, 254 do GROUPS[n + 1] = tostring(n) end
-
-local watchByAccount   = {}   -- [account] = the colour-row subscription on that character's tree
-local numbersByAccount = {}   -- [account] = the member-row one
-local rows           = {}   -- {row =, picker =, seen = the group the row last reported}
-
-local function say(line) hafen.log():write("better-village-controls: " .. line) end
-
--- Where the picker goes, in the colour row's own parent: under the row unless something the server put
--- there is already in the way, in which case beside it.
-local function placeFor(colours, height)
-  local at, box = colours:position(), colours:size()
-  local under = at.y + box.h + GAP
-  local ceiling = nil
-  for _, sibling in ipairs(colours:parent():children():list()) do
-    local corner, size = sibling:position(), sibling:size()
-    if (corner.y >= at.y + box.h) and (corner.x < at.x + WIDTH) and ((corner.x + size.w) > at.x) then
-      if (ceiling == nil) or (corner.y < ceiling) then ceiling = corner.y end
-    end
-  end
-  if (ceiling == nil) or ((ceiling - under) >= height) then return at.x, under end
-  return at.x + box.w + GAP, at.y
+-- Dropdown rows are strings, and "Changed" hands the chosen string back.
+local GROUP_ROWS = {}
+for groupNumber = 0, 254 do
+    GROUP_ROWS[groupNumber + 1] = tostring(groupNumber)
 end
 
-local function addPicker(colours)
-  local panel = colours:parent()
-  -- nil is the kin window's row: unwalkable from inside, and a row with no reachable parent has nowhere to
-  -- put a picker in any case. Both readings end here, so the nil is the whole check.
-  if (panel == nil) or NO_PICKER[panel:type()] then return end
-  local name = "group" .. tostring(colours:position().y)
-  if panel:matchAll("[name=better-village-controls/" .. name .. "]")[1] then return end
+local groupRowWatchByUser = {} -- [user] = the "@GroupSelector" Added subscription on that session
+local memberRowWatchByUser = {} -- [user] = the "@ItemWidget" Added subscription on that session
+local pickers = {} -- {row =, picker =, seen = the group the row last reported}
 
-  local picker = hafen.ui():dropdown():parent(panel):name(name):size(WIDTH):rows(GROUPS)
-    :tooltip("the group this row is in, and where to put it -- 0-254, the range the server takes;"
-             .. " the eight colours only reach 0-7")
-  picker:position(placeFor(colours, picker:size().h))
-  picker:on("Changed", function(row)
-    local group = tonumber(row)
-    -- Protected because the drive runs the panel's OWN hook, which is published code this addon cannot
-    -- read: a panel that cannot hold the group says so by throwing, and the row is left where it was.
-    local driven, failure = pcall(function() colours:value(group) end)
-    if not driven then say(tostring(failure)) end
-  end)
-  rows[#rows + 1] = {row = colours, picker = picker}
+local function log(line)
+    hafen.log():write("extended-village-permissions: " .. line)
 end
 
--- What each row is showing, into its picker. Read rather than remembered, because the group changes under
--- this addon: the village's row follows whichever group the tab is showing, and the member's row is built
--- again by the server every time another member is selected.
-hafen.timer():every(SYNC, function()
-  for i = #rows, 1, -1 do
-    local entry = rows[i]
-    if not (entry.row:exists() and entry.picker:exists()) then
-      table.remove(rows, i)
-    else
-      local group = entry.row:value()
-      if group ~= entry.seen then
-        entry.seen = group
-        if group then entry.picker:value(tostring(group)) end
-      end
+-- ---------------------------------------------------------------- the picker
+
+-- Under the colour row if nothing the server placed there is in the way, otherwise beside it.
+local function placeFor(colourRow, pickerHeight)
+    local rowPosition, rowSize = colourRow:position(), colourRow:size()
+    local underY = rowPosition.y + rowSize.h + PICKER_GAP
+    local firstObstacleY = nil
+    for _, sibling in ipairs(colourRow:parent():children():list()) do
+        local siblingPosition, siblingSize = sibling:position(), sibling:size()
+        local below = siblingPosition.y >= rowPosition.y + rowSize.h
+        local overlapsX = siblingPosition.x < rowPosition.x + PICKER_WIDTH
+            and siblingPosition.x + siblingSize.w > rowPosition.x
+        if below and overlapsX and (firstObstacleY == nil or siblingPosition.y < firstObstacleY) then
+            firstObstacleY = siblingPosition.y
+        end
     end
-  end
+    if firstObstacleY == nil or firstObstacleY - underY >= pickerHeight then
+        return rowPosition.x, underY
+    end
+    return rowPosition.x + rowSize.w + PICKER_GAP, rowPosition.y
+end
+
+local function addPicker(colourRow)
+    local panel = colourRow:parent()
+    if panel == nil or NO_PICKER[panel:type()] then
+        return
+    end
+    local pickerName = "group" .. tostring(colourRow:position().y)
+    if panel:matchAll("[name=extended-village-permissions/" .. pickerName .. "]")[1] then
+        return -- already has one
+    end
+
+    local picker = hafen.ui():dropdown():parent(panel):name(pickerName):size(PICKER_WIDTH):rows(GROUP_ROWS)
+        :tooltip("the group this row is in, and where to put it -- 0-254, the range the server takes;"
+            .. " the eight colours only reach 0-7")
+    picker:position(placeFor(colourRow, picker:size().h))
+    picker:on("Changed", function(chosenRow)
+        local group = tonumber(chosenRow)
+        -- The drive runs the panel's own hook; a panel that cannot hold the group throws, and the row stays.
+        local driven, failure = pcall(function()
+            colourRow:value(group)
+        end)
+        if not driven then
+            log(tostring(failure))
+        end
+    end)
+    pickers[#pickers + 1] = {row = colourRow, picker = picker}
+end
+
+-- The group changes under the addon (the tab switches group, the server rebuilds the member row), so the
+-- pickers re-read their rows instead of remembering.
+hafen.timer():every(SYNC_SECONDS, function()
+    for index = #pickers, 1, -1 do
+        local entry = pickers[index]
+        if not (entry.row:exists() and entry.picker:exists()) then
+            table.remove(pickers, index)
+        else
+            local group = entry.row:value()
+            if group ~= entry.seen then
+                entry.seen = group
+                if group then
+                    entry.picker:value(tostring(group))
+                end
+            end
+        end
+    end
 end)
 
 local function watchGroupRows(session)
-  local previous = watchByAccount[session:user()]
-  if previous then previous:off() end
-  watchByAccount[session:user()] = session:ui():on("@GroupSelector", "Added", addPicker)
-  -- ...and the rows already standing, which no "Added" is coming for: a reload with the window open, or a
-  -- character who entered the world with one remembered open.
-  for _, row in ipairs(session:ui():matchAll("@GroupSelector")) do addPicker(row) end
+    local previous = groupRowWatchByUser[session:user()]
+    if previous then
+        previous:off()
+    end
+    groupRowWatchByUser[session:user()] = session:ui():on("@GroupSelector", "Added", addPicker)
+    -- Rows already open (a reload, or a window remembered open) get no "Added".
+    for _, colourRow in ipairs(session:ui():matchAll("@GroupSelector")) do
+        addPicker(colourRow)
+    end
 end
 
--- ------------------------------------------------------------------ the number on a member's row
+-- ---------------------------------------------------------------- the number on a member's row
 
--- The group is read LIVE inside the painter, never captured: a member's group changes under the row (the
--- server re-`add`s the member) and the row itself is rebuilt as the list scrolls, so anything remembered
--- here would be a second copy going stale against the one the client keeps.
-local function numberRow(row)
-  if row:group() == nil then return end   -- every other list's rows; only a polity member has one
-  row:overlay():add("group"):draw(function(g, w, h)
-    local group = row:group()
-    if group == nil then return end
-    g:color(210, 210, 210)
-    g:atext(tostring(group), w - 2, h / 2, 1.0, 0.5)
-  end)
+-- Read inside the painter, not captured: the server re-adds a member when their group changes, and the
+-- row is rebuilt as the list scrolls.
+local function numberRow(memberRow)
+    if memberRow:group() == nil then
+        return -- only a polity member's row has a group
+    end
+    memberRow:overlay():add("group"):draw(function(graphics, width, height)
+        local group = memberRow:group()
+        if group == nil then
+            return
+        end
+        graphics:color(210, 210, 210)
+        graphics:atext(tostring(group), width - 2, height / 2, 1.0, 0.5)
+    end)
 end
 
 local function watchMemberRows(session)
-  local previous = numbersByAccount[session:user()]
-  if previous then previous:off() end
-  numbersByAccount[session:user()] = session:ui():on("@ItemWidget", "Added", numberRow)
-  for _, row in ipairs(session:ui():matchAll("@ItemWidget")) do numberRow(row) end
+    local previous = memberRowWatchByUser[session:user()]
+    if previous then
+        previous:off()
+    end
+    memberRowWatchByUser[session:user()] = session:ui():on("@ItemWidget", "Added", numberRow)
+    for _, memberRow in ipairs(session:ui():matchAll("@ItemWidget")) do
+        numberRow(memberRow)
+    end
 end
 
 hafen.event():on("SessionEnteredWorld", watchGroupRows)
 hafen.event():on("SessionEnteredWorld", watchMemberRows)
 hafen.event():on("SessionRemoved", function(session)
-  watchByAccount[session:user()] = nil
-  numbersByAccount[session:user()] = nil
+    groupRowWatchByUser[session:user()] = nil
+    memberRowWatchByUser[session:user()] = nil
 end)
 
--- :bvc -- every colour row this character has, what group it is in, and where its picker went.
-hafen.console():on("bvc", function()
-  local session = hafen.session():current()
-  if not session then
-    say("no character on screen")
-    return
-  end
-  local found = session:ui():matchAll("@GroupSelector")
-  say(#found .. " colour rows in this character's tree")
-  for i, row in ipairs(found) do
-    local at, panel = row:position(), row:parent()
-    local picker
-    if panel == nil then picker = "none (the kin window is not walkable from inside)"
-    elseif NO_PICKER[panel:type()] then picker = "none (the eight are the whole space here)"
-    else picker = tostring(panel:matchAll("[name^=better-village-controls/]")[1] ~= nil) end
-    say("  row " .. i .. ": panel=" .. (panel and panel:type() or "unreachable")
-        .. " group=" .. tostring(row:value()) .. " at " .. at.x .. "," .. at.y
-        .. " picker=" .. picker)
-  end
+-- ---------------------------------------------------------------- :evp
+
+-- Lists every colour row of the current character, its group, and whether it got a picker.
+hafen.console():on("evp", function()
+    local session = hafen.session():current()
+    if not session then
+        log("no character on screen")
+        return
+    end
+    local colourRows = session:ui():matchAll("@GroupSelector")
+    log(#colourRows .. " colour rows in this character's tree")
+    for index, colourRow in ipairs(colourRows) do
+        local rowPosition, panel = colourRow:position(), colourRow:parent()
+        local pickerState
+        if panel == nil then
+            pickerState = "none (the kin window is not walkable from inside)"
+        elseif NO_PICKER[panel:type()] then
+            pickerState = "none (the eight are the whole space here)"
+        else
+            pickerState = tostring(panel:matchAll("[name^=extended-village-permissions/]")[1] ~= nil)
+        end
+        log("  row " .. index .. ": panel=" .. (panel and panel:type() or "unreachable")
+            .. " group=" .. tostring(colourRow:value()) .. " at " .. rowPosition.x .. "," .. rowPosition.y
+            .. " picker=" .. pickerState)
+    end
 end)

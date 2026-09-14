@@ -22,8 +22,8 @@ The list starts **empty**. Nothing is picked until you add something.
 offering only `Pick` is picked. A caption is matched whole and without regard to case, so `pick` and
 `Pick` are the same entry, and a blank or a repeat is not added.
 
-The list is saved for the **account**, so every character picks from the same one, and it holds across
-reloads and restarts.
+The list is saved in the addon's own file, shared by every account and character on this client, and it
+holds across reloads and restarts.
 
 ## What it asks for
 

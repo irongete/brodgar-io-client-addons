@@ -60,7 +60,7 @@
 -- into the window to click a row. That hotkey starts UNBOUND: assign it under Options > Keybindings >
 -- Widgetstack (suggested: Ctrl+Shift+F).
 --
--- THE TREE COLUMN (the right-hand panel): the COMPLETE tree of the character on screen, as a treeview --
+-- THE TREE COLUMN (the left-hand panel): the COMPLETE tree of the character on screen, as a treeview --
 -- every widget the client has up for them, hidden or covered or not -- with nothing of the hover in it.
 -- Live off two subscriptions on the tree (Added and Removed on "*"), expanded and collapsed row by row; a
 -- click outlines the widget on the screen and a right click opens its Inspector. See "the tree column".
@@ -86,9 +86,10 @@ local walks = 0           -- how many s:ui():matchAll() walks the last rebuild c
 local frozen = false      -- the "freeze" hotkey: hold the stack still so you can mouse into the window to read it
 
 local LINE = 14                     -- row height, shared by every list here
-local STACK_W = 580                 -- the stack's part of the window (049.4: a chain candidate is a long line)
-local TREE_W = 340                  -- the tree column beside it
-local WIN_W, WIN_H = STACK_W + TREE_W, 574   -- 063.4: the height is the read block's
+local TREE_W = 340                  -- the tree column, the left-hand part of the window
+local STACK_W = 580                 -- the stack's part beside it (049.4: a chain candidate is a long line)
+local STACK_X0 = TREE_W             -- where the stack's part starts: every x of its draw is offset by this
+local WIN_W, WIN_H = TREE_W + STACK_W, 574   -- 063.4: the height is the read block's
 local STACK_Y0 = 22                 -- first stack row y (shared by draw + click hit-test)
 local STACK_MAXROWS = 11            -- stack rows that fit above the selector panel
 
@@ -356,18 +357,18 @@ end
 
 -- The block, drawn identically in both windows: a divider, a header that says how many lines there are (or
 -- that there are none), the lines, and the count of any it had to clip.
-local function drawReads(g, width, lines, headY, rowY)
-  g:color(90, 90, 90); g:frect(6, headY - 8, width - 12, 1); g:color()
+local function drawReads(g, x0, width, lines, headY, rowY)
+  g:color(90, 90, 90); g:frect(x0 + 6, headY - 8, width - 12, 1); g:color()
   g:color(170, 170, 170)
   g:text((#lines == 0) and "it answers none of the widget reads"
-                        or ("what it answers (%d):"):format(#lines), 6, headY)
+                        or ("what it answers (%d):"):format(#lines), x0 + 6, headY)
   g:color()
   for i = 1, math.min(#lines, READ_MAXROWS) do
-    g:text(lines[i], 10, rowY + (i - 1) * LINE)
+    g:text(lines[i], x0 + 10, rowY + (i - 1) * LINE)
   end
   if #lines > READ_MAXROWS then
     g:color(120, 120, 120)
-    g:text(("... (+%d more)"):format(#lines - READ_MAXROWS), 10, rowY + READ_MAXROWS * LINE)
+    g:text(("... (+%d more)"):format(#lines - READ_MAXROWS), x0 + 10, rowY + READ_MAXROWS * LINE)
     g:color()
   end
 end
@@ -479,7 +480,7 @@ openInspector = function(node)
         g:text(("... (+%d more)"):format(#kids - I_MAXROWS), 10, I_CHILD_Y0 + I_MAXROWS * LINE)
         g:color()
       end
-      drawReads(g, w, st.reads, I_READ_HEAD, I_READ_Y0)      -- 063.4: what this widget answers
+      drawReads(g, 0, w, st.reads, I_READ_HEAD, I_READ_Y0)   -- 063.4: what this widget answers
       g:color(120, 120, 120); g:rect(0, 0, w, h); g:color()
   end)
   -- Re-read every frame the window stands, on the step, where no tree is held. The subscription is the
@@ -533,8 +534,15 @@ local function rebuild()
   reads = last and describe(last) or {}         -- 063.4: and everything that leaf answers about itself
   walks = insp and insp.walks or 0
   -- The highlight box tracks the leaf. Suppress it when the leaf is the root widget (hovering "nothing"
-  -- resolves to the full-screen root -- faithful, but a whole-screen box is just noise).
-  if last and (#out > 1) then
+  -- resolves to the full-screen root -- faithful, but a whole-screen box is just noise), and over this
+  -- addon's OWN windows -- the stack window and every Inspector -- where a box would only outline the
+  -- panel being read. :owned() answers on the content and on the chrome around it, but the leaf under a
+  -- close button is the button, so the whole stack is asked, leaf to root.
+  local overOwn = false
+  for index = 1, #out do
+    if out[index].node:owned() then overOwn = true end
+  end
+  if last and (#out > 1) and not overOwn then
     hoverPos, hoverSize = last:rootPos(), last:size()
   else
     hoverPos, hoverSize = nil, nil
@@ -577,39 +585,39 @@ local READ_HEAD = 406
 local READ_Y0   = 422
 
 local function drawPanel(g, w, h)
-  g:color(90, 90, 90); g:frect(6, PANEL_Y0 - 8, w - 12, 1); g:color()      -- divider
+  g:color(90, 90, 90); g:frect(STACK_X0 + 6, PANEL_Y0 - 8, STACK_W - 12, 1); g:color()      -- divider
   if not insp then
-    g:color(150, 150, 150); g:text("hover a widget to see what it IS and how to select it", 6, P_CLASS); g:color()
+    g:color(150, 150, 150); g:text("hover a widget to see what it IS and how to select it", STACK_X0 + 6, P_CLASS); g:color()
     return
   end
   g:color(230, 230, 160)
-  g:text(("class: %s    role: %s"):format(insp.cls or "?", insp.role or "nil (nothing classifies it)"), 6, P_CLASS)
+  g:text(("class: %s    role: %s"):format(insp.cls or "?", insp.role or "nil (nothing classifies it)"), STACK_X0 + 6, P_CLASS)
   g:color()
   -- Its OWN attribute, and it says WHICH key that is: since 049.1 a window is named by [title=] (its caption)
   -- and everything else by [text=] (the words it displays), and writing either on the other step is a parse error.
   g:text(("[%s=]  %s   (%s)"):format(
     insp.ownKey,
     insp.own and ("'" .. insp.own .. "'") or "-",
-    (insp.ownKey == "title") and "its OWN caption" or "the words IT displays"), 6, P_OWN)
-  g:text(("[res=]   %s"):format(insp.res or "-  (most windows carry no resource)"), 6, P_RES)
+    (insp.ownKey == "title") and "its OWN caption" or "the words IT displays"), STACK_X0 + 6, P_OWN)
+  g:text(("[res=]   %s"):format(insp.res or "-  (most windows carry no resource)"), STACK_X0 + 6, P_RES)
   -- The anchor step: the enclosing window, written in FRONT with a space. Not an attribute of this widget.
   g:color(180, 200, 255)
   g:text(("anchor:  %s   (%s)"):format(
     insp.anchor and ellipsis(insp.anchor.s, 44) or "-",
     insp.anchor and "the enclosing window: the chain's first step"
-                 or "no captioned window encloses it: flat candidates only"), 6, P_ANCHOR)
+                 or "no captioned window encloses it: flat candidates only"), STACK_X0 + 6, P_ANCHOR)
   g:color()
 
   g:color(170, 170, 170)
-  g:text(('selectors that match it, most specific first ("*" omitted):'), 6, P_HEAD)
+  g:text(('selectors that match it, most specific first ("*" omitted):'), STACK_X0 + 6, P_HEAD)
   g:color()
   local n = #insp.cands
   for i = 1, math.min(n, SEL_MAXROWS) do
     local c = insp.cands[i]
     local y = SEL_Y0 + (i - 1) * LINE
     if c == insp.offer then g:color(150, 230, 150) end
-    g:text(ellipsis(c.sel, 58), 10, y)              -- the count column starts at SEL_COUNT_X; do not run into it
-    g:text(("%d match%s, #%d"):format(c.count, (c.count == 1) and "" or "es", c.idx), SEL_COUNT_X, y)
+    g:text(ellipsis(c.sel, 58), STACK_X0 + 10, y)              -- the count column starts at SEL_COUNT_X; do not run into it
+    g:text(("%d match%s, #%d"):format(c.count, (c.count == 1) and "" or "es", c.idx), STACK_X0 + SEL_COUNT_X, y)
     if c == insp.offer then g:color() end
   end
   -- The offer FLOATS right under the list rather than sitting at a fixed y: most widgets have 3 candidates,
@@ -617,24 +625,24 @@ local function drawPanel(g, w, h)
   -- it, so nothing depends on where it lands.
   local used = math.min(n, SEL_MAXROWS)
   if n == 0 then
-    g:color(200, 150, 150); g:text("(none -- it has no role, no named class and no key)", 10, SEL_Y0); g:color()
+    g:color(200, 150, 150); g:text("(none -- it has no role, no named class and no key)", STACK_X0 + 10, SEL_Y0); g:color()
     used = 1
   elseif n > SEL_MAXROWS then
     g:color(120, 120, 120)
-    g:text(("... (+%d less specific)"):format(n - SEL_MAXROWS), 10, SEL_Y0 + SEL_MAXROWS * LINE)
+    g:text(("... (+%d less specific)"):format(n - SEL_MAXROWS), STACK_X0 + 10, SEL_Y0 + SEL_MAXROWS * LINE)
     g:color()
     used = used + 1
   end
   if insp.offer then
     g:color(150, 230, 150)
-    g:text(pasteLine(insp.offer), 6, SEL_Y0 + used * LINE + 8)
+    g:text(pasteLine(insp.offer), STACK_X0 + 6, SEL_Y0 + used * LINE + 8)
     g:color()
   end
 end
 
 -- ======================================================================================= the tree column
 --
--- THE RIGHT-HAND PANEL: the COMPLETE tree of the character on screen, as a treeview -- every widget the
+-- THE LEFT-HAND PANEL: the COMPLETE tree of the character on screen, as a treeview -- every widget the
 -- client has up for them, hidden or covered or not -- with nothing of the hover in it. Where the stack
 -- answers "what is under the cursor", this answers "what is there at all": the zero-size, the hidden and
 -- the covered widget a hover can never reach are all rows here.
@@ -651,7 +659,7 @@ end
 --   * Draw reads none of it. A widget read takes its tree's monitor, which this window's Draw may not take
 --     (api/threading.md), so the rows are built on the step and Draw formats what was built.
 
-local TREE_X0       = STACK_W              -- the column starts where the stack's part ends; a divider marks it
+local TREE_X0       = 0                    -- the column is the left-hand part; a divider marks where it ends
 local TREE_Y0       = STACK_Y0             -- first row y, level with the stack's
 local TREE_INDENT   = 12                   -- pixels per depth
 local TREE_MARKER_W = 22                   -- "[+]" and a gap, before the label
@@ -784,7 +792,7 @@ end
 
 local function drawTree(graphics, width, height)
   graphics:color(90, 90, 90)
-  graphics:frect(TREE_X0, 6, 1, height - 12)                -- the divider
+  graphics:frect(STACK_X0, 6, 1, height - 12)               -- the divider, between the column and the stack
   graphics:color()
   local total = #treeRows
   local shown = math.max(0, math.min(total - treeScroll, TREE_MAXROWS))
@@ -838,9 +846,9 @@ local function drawStack(g, w, h)
     :format(rebuilds, walks, insp and insp.chains or 0,
             (insp and (insp.dropped > 0)) and (", +" .. insp.dropped .. " unwalked") or "",
             (above > 0) and (", +" .. above .. " above") or "",
-            frozen and ", FROZEN" or ""), 6, 4)
+            frozen and ", FROZEN" or ""), STACK_X0 + 6, 4)
   if #rows == 0 then
-    g:color(170, 170, 170); g:text("move the mouse over the UI", 6, STACK_Y0); g:color()
+    g:color(170, 170, 170); g:text("move the mouse over the UI", STACK_X0 + 6, STACK_Y0); g:color()
   else
     -- rows is leaf-first; draw shallowest-first (from index `shown` down to 1) so indent grows downward and
     -- the LEAF -- the widget the panel below is about -- is always the last line, never the clipped one.
@@ -855,16 +863,16 @@ local function drawStack(g, w, h)
         r.w, r.h)
       -- tint the leaf (the hovered widget) so it stands out
       if i == 1 then g:color(120, 230, 120) end
-      g:text(ellipsis(line, 62), 6, y)
+      g:text(ellipsis(line, 62), STACK_X0 + 6, y)
       if i == 1 then g:color() end
       y = y + LINE
     end
   end
   drawPanel(g, w, h)
-  drawReads(g, w, reads, READ_HEAD, READ_Y0)                       -- 063.4: what the hovered widget answers
+  drawReads(g, STACK_X0, STACK_W, reads, READ_HEAD, READ_Y0)        -- 063.4: what the hovered widget answers
   g:color(150, 150, 120)
-  g:text("click a row to inspect / a selector to log it (the freeze hotkey holds it)", 6, h - 16)
-  drawTree(g, w, h)                                                -- the column beside all of that
+  g:text("click a row to inspect / a selector to log it (the freeze hotkey holds it)", STACK_X0 + 6, h - 16)
+  drawTree(g, w, h)                                                -- the column to the left of all of that
   g:color(120, 120, 120); g:rect(0, 0, w, h); g:color()            -- 1px border
 end
 
@@ -893,12 +901,26 @@ end
 
 -- The HUD overlay draws the green highlight box over the hovered widget, in root coords (like WoW's outline),
 -- and an orange one over the widget picked in the tree column.
+local PICK_STROKE = 3           -- the picked widget's outline, in design pixels; g:rect is one hairline
+
+-- A rectangle outlined with g:line at a stroke of its own, centred on the box's edge as g:rect's hairline
+-- is; the horizontals run half a stroke past each side so the corners fill.
+local function thickRect(g, x, y, w, h, stroke)
+  local half = stroke / 2
+  g:line(x - half, y, x + w + half, y, stroke)
+  g:line(x - half, y + h, x + w + half, y + h, stroke)
+  g:line(x, y, x, y + h, stroke)
+  g:line(x + w, y, x + w, y + h, stroke)
+end
+
 local function drawOutline(g, w, h)
   if hoverPos and hoverSize then
     g:color(80, 230, 90); g:rect(hoverPos.x, hoverPos.y, hoverSize.w, hoverSize.h); g:color()
   end
   if pickPos and pickSize then
-    g:color(240, 170, 60); g:rect(pickPos.x, pickPos.y, pickSize.w, pickSize.h); g:color()
+    g:color(240, 170, 60)
+    thickRect(g, pickPos.x, pickPos.y, pickSize.w, pickSize.h, PICK_STROKE)
+    g:color()
   end
 end
 
@@ -936,10 +958,10 @@ local function open()
     treeTick(dt)
   end)
   win:on("MouseDown", function(event)
-    if event:x() >= TREE_X0 then treeClick(event) else stackClick(event) end
+    if event:x() < STACK_X0 then treeClick(event) else stackClick(event) end
   end)
   win:on("Wheel", function(event)
-    if event:x() < TREE_X0 then return end             -- over the stack's part the wheel is nobody's
+    if event:x() >= STACK_X0 then return end           -- over the stack's part the wheel is nobody's
     treeScrollBy(((event:amount() > 0) and 1 or -1) * TREE_WHEEL)
     event:preventDefault()
   end)
@@ -952,15 +974,6 @@ local function open()
   hafen.ui():overlay():add("outline"):draw(drawOutline)
   hafen.log():write("widgetstack: window up -- hover the UI; click a row to inspect; :selector logs the hovered widget's selector; :widgetstack toggles it, the freeze hotkey holds it")
 end
-
--- The first character to enter the world puts the window up. After that it is :widgetstack's to open and
--- close: a second login, or a relog, leaves it as the user left it.
-local announced = false
-hafen.event():on("SessionEnteredWorld", function()
-  if announced then return end
-  announced = true
-  open()
-end)
 
 -- :widgetstack -- toggle the window (WoW /framestack on/off): destroy it while it stands, build it when not.
 hafen.console():on("widgetstack", function(args)

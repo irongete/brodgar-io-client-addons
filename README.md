@@ -22,21 +22,22 @@ carries its own example.
 
 ## Publish one
 
-[`publish.js`](publish.js) zips one addon folder and uploads it to [the hub](https://brodgar.io/addons),
-where the client's **Browse** tab finds it. It needs Node 22 and a token from
-[Configuration](https://brodgar.io/addons/settings), as `BRODGAR_TOKEN=bio_…` in a `.env` file at the
-root of this repo (git ignores it):
+Once: create a token in [Configuration](https://brodgar.io/addons/settings) and put it in a `.env` file
+at the root of this repo (git ignores it):
 
-```bash
-npm run publish -- gob-cache-map                  # 1.0.0 -> 1.0.1 in manifest.json, then upload
-npm run publish -- gob-cache-map --version 2.0.0  # this version instead
+```
+BRODGAR_TOKEN=bio_...
 ```
 
-Without `--version` the manifest's `X.Y.Z` becomes `X.Y.(Z+1)`. Either way the version is written to
-`manifest.json` before packing — the hub reads it from the manifest inside the zip — and put back if the
-upload fails; commit it afterwards. The `--` matters: without it npm keeps `--version` for itself, so
-`npm run publish gob-cache-map 2.0.0` is the short form. Run `npm link` once and `publish gob-cache-map`
-works from anywhere.
+Then, from PowerShell:
+
+```powershell
+.\publish.ps1 gob-cache-map          # manifest 1.0.0 -> 1.0.1, zip, upload
+.\publish.ps1 gob-cache-map 2.0.0    # this version instead
+```
+
+[`publish.ps1`](publish.ps1) writes the version into `manifest.json`, zips the folder and uploads it to
+[the hub](https://brodgar.io/addons). If the upload fails the manifest is put back. Commit the bump afterwards.
 
 ## The addons
 
@@ -45,7 +46,7 @@ works from anywhere.
 | `actionbars` | Replaces the client's action bar with as many as the game has slots for: one bar per page of the server's 144, twelve buttons each, flat or upright, drag-and-drop from the action menu and a hotkey per slot | `actionbar.use`, `actionbar.res`, `actionbar.clear` |
 | `auto-flowermenu` | Whenever a radial menu opens, picks the first petal on your list that the ring offers — a list of captions you add and order by priority in Options ▸ AddOns | `flowermenu.select` |
 | `autodrop` | Names a set of items and throws every one of them on the ground the moment it reaches that character's backpack — and what carries a count of its own, seeds above all, only once that count is 50 | `item.drop` |
-| `better-village-controls` | A polity's groups run 0 to 254 while the client draws eight colours, so every colour row that spends the whole of that space grows a picker beside it carrying every group the server takes | `widget.value` |
+| `extended-village-permissions` | Assign up to 255 groups (0-254) beyond the client's native limit of eight | `widget.value` |
 | `builder-helper` | Remembers what every building site you have opened still needs, and one key floats each material's have/total over the site | — |
 | `clickpath` | Alt-click queues waypoints, each with a flag, and draws every logged-in character's path over the map, under the client's windows | `player.move` |
 | `essentials` | What the client does for a character the moment it enters the world: the toggles, the inventory and the movement speed, each a row in Options ▸ AddOns | `menugrid.use`, `speed.set` |
@@ -66,7 +67,7 @@ works from anywhere.
 | `simple-minimap` | Puts the corner minimap in the action bars' box: the client's carved plate off, the eight-piece window frame round the map instead | — |
 | `stockpile-controls` | Every window titled "Stockpile" grows a little taller and carries a row of its own below the pile: an amount, and a Take button that draws that many items out of the pile and into your backpack | `widget.send` |
 | `themes` | Loads whole client looks from JSON files in its own `themes/` folder and installs one | — |
-| `translator-helper` | Displays the client in Spanish, Russian or Chinese and collects every string the chosen language does not name yet, so you translate them one by one in a window and see each one on screen the moment it is saved | — |
+| `translations` | Displays the client in the language you pick in Options ▸ AddOns, and helps you write a new one: with the helper on, every string the language does not name yet is collected while you play, translated one by one in the translator window and exported as the JSON file a language ships as | — |
 | `trellis-builder` | Pick a block pile, a string pile and a patch of ground, press Start, and the character walks the route itself and fills the patch with trellises — as many per tile as the trellis's own footprint leaves room for | `player.move`, `gob.click`, `world.place`, `menugrid.use`, `widget.send` |
 | `voice` | Proximity voice over `voice.brodgar.io`: one link held for the client's life, a page of settings, push-to-talk, voice detection or an open microphone, a speaker drawn over whoever is talking, a window with a mute and a volume per player, and a mute petal on a player's ring | `voice.connect` |
 | `wasd-movement` | Walk with W, A, S and D | `player.move`, `widget.send` |

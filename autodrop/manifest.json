@@ -10,8 +10,5 @@
   ],
   "permissions": [
     "item.drop"
-  ],
-  "saved_variables": [
-    "settings"
   ]
 }

@@ -6,6 +6,5 @@
   "description": "One row per login the client holds: go to that character, log it out, or cycle to the next with a hotkey.",
   "api_version": "1.0",
   "files": ["main.lua"],
-  "permissions": ["session.close"],
-  "saved_variables": [{ "name": "window", "scope": "account" }]
+  "permissions": ["session.close"]
 }

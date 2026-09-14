@@ -5,6 +5,5 @@
   "author": "brodgar",
   "description": "Puts the corner minimap in the action bars' box: the client's carved plate off, the eight-piece window frame round the map instead.",
   "api_version": "1.0",
-  "files": ["main.lua"],
-  "saved_variables": [{ "name": "state", "scope": "account" }]
+  "files": ["main.lua"]
 }

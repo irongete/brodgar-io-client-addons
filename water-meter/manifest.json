@@ -5,6 +5,5 @@
   "author": "irongete",
   "description": "A stamina-shaped bar counting every drop of water you are carrying.",
   "api_version": "1.0",
-  "files": ["main.lua"],
-  "saved_variables": [{ "name": "capacities", "scope": "account" }]
+  "files": ["main.lua"]
 }

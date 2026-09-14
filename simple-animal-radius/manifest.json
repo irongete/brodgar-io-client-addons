@@ -7,11 +7,5 @@
   "api_version": "1.0",
   "files": [
     "main.lua"
-  ],
-  "saved_variables": [
-    {
-      "name": "animals",
-      "scope": "account"
-    }
   ]
 }

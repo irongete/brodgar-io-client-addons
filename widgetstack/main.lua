@@ -41,12 +41,17 @@
 -- Click any panel row (or run `:selector`) to LOG the line -- chat-log text is selectable, which is how it
 -- leaves the client. Freeze first (the "freeze" hotkey), or moving the mouse to the window re-hovers.
 --
--- THE EFFICIENCY GUARD (029.1: plain `==`): Update fires EVERY frame, but the hovered widget only
+-- THE EFFICIENCY GUARD (029.1: plain `==`): the poll fires EVERY frame, but the hovered widget only
 -- changes when the mouse moves onto a different one. So we cache the last hovered leaf and BAIL EARLY when
 -- it hasn't changed -- no tree walk, no selector resolution, no window rebuild, per frame. A per-rebuild
 -- counter (and the number of selector walks it cost), shown in the window, does NOT tick while the cursor
 -- sits still. Widget objects are INTERNED, so two lookups of the same live widget are the SAME value and
 -- `==` IS the identity test -- :same() is gone with the collapse.
+--
+-- AND NOTHING RUNS WHILE THE WINDOW IS CLOSED. The poll is the window's OWN Update (see open()), so it
+-- fires while the window stands and not once after it has gone -- the X and :widgetstack both destroy the
+-- window, and the subscription goes with it -- and the outline overlay is added when the window opens and
+-- removed when it closes. A closed widgetstack costs nothing a frame: no poll, no guard, no painter.
 --
 -- THE INSPECTOR: the stack rows are CLICKABLE -- click one and a new "Inspector" window opens with that
 -- widget's type/id/pos/size/rootpos/visible/text + role/res + its selector + its parent link + its child
@@ -55,6 +60,11 @@
 -- into the window to click a row. That hotkey starts UNBOUND: assign it under Options > Keybindings >
 -- Widgetstack (suggested: Ctrl+Shift+F).
 --
+-- THE TREE COLUMN (the right-hand panel): the COMPLETE tree of the character on screen, as a treeview --
+-- every widget the client has up for them, hidden or covered or not -- with nothing of the hover in it.
+-- Live off two subscriptions on the tree (Added and Removed on "*"), expanded and collapsed row by row; a
+-- click outlines the widget on the screen and a right click opens its Inspector. See "the tree column".
+--
 -- 063.4 -- WHAT IT ANSWERS. Under both of those sits the read block: everything the widget will answer about
 -- ITSELF, driven off ONE table in ONE fixed order (see READS) so the hover panel and every Inspector window
 -- print the same lines in the same places. A line appears only where the read answered something, so what
@@ -62,8 +72,8 @@
 
 hafen.log():write("widgetstack loaded")
 
-local win                 -- the floating stack window (created at SessionEnteredWorld)
-local overlay             -- the HUD overlay handle drawing the highlight box
+local win                 -- the floating stack window while it stands: open() builds it, the X or :widgetstack destroys it
+local place               -- { x=, y= } where the window stood when it was last closed, so the next open() puts it back there
 local last                -- the Widget object we last built the stack for (the guard's memory)
 local rows = {}           -- the current stack, LEAF-FIRST: { {node,type,id,text,w,h}, ... }
 local insp                -- the selector report for the hovered leaf (see selectorsFor)
@@ -76,6 +86,9 @@ local walks = 0           -- how many s:ui():matchAll() walks the last rebuild c
 local frozen = false      -- the "freeze" hotkey: hold the stack still so you can mouse into the window to read it
 
 local LINE = 14                     -- row height, shared by every list here
+local STACK_W = 580                 -- the stack's part of the window (049.4: a chain candidate is a long line)
+local TREE_W = 340                  -- the tree column beside it
+local WIN_W, WIN_H = STACK_W + TREE_W, 574   -- 063.4: the height is the read block's
 local STACK_Y0 = 22                 -- first stack row y (shared by draw + click hit-test)
 local STACK_MAXROWS = 11            -- stack rows that fit above the selector panel
 
@@ -315,7 +328,7 @@ local READS = {
   { "image",     function(w) return w:image() end,
                  function(v) return ("up %s   [%s]"):format(faceName(v.up), keysOf(v)) end },
   { "items",     function(w) return w:items() end,
-                 function(v) return (#v > 0) and (#v .. " inside") or nil end },
+                 function(v) local count = v:count(); return (count > 0) and (count .. " inside") or nil end },
   { "focused",   function(w) return w:focused() end,
                  function(v) return v and "yes -- a keystroke reaches it" or nil end },
   { "owned",     function(w) local i = w:info(); return i and i.owned end,
@@ -364,7 +377,6 @@ end
 local openInspector       -- forward decl (it recurses: a child/parent click opens another inspector)
 local openLater           -- ...and the same, one step later: opening one WALKS the inspected widget's tree
 local inspCascade = 0     -- cascade new inspector windows so they don't land exactly on top of each other
-local inspectors = {}     -- [st] = true, every Inspector standing: the Update pass re-reads each one
 
 -- Inspector layout constants (shared by its Draw + MouseDown handlers so a click maps to the same row it drew).
 local I_W, I_H       = 470, 410       -- 049.4: wide enough for a chain candidate on one line
@@ -382,7 +394,7 @@ local function fmtSize(c)  return c and (c.w .. "x" .. c.h) or "-" end
 -- WHAT AN INSPECTOR SHOWS IS READ ON THE STEP. `:rootPos()` and `:children()` take the monitor of the tree
 -- the widget stands in, and this window's Draw and its clicks are answered holding the LAYER's -- a second
 -- tree, which no handler may take while it holds one (api/threading.md). So an inspector holds a SNAPSHOT,
--- re-taken every frame by the Update pass below where no tree is held, and the panel formats it. That is
+-- re-taken every frame by the window's own Update where no tree is held, and the panel formats it. That is
 -- the shape the stack window above has always had, and it is what makes a click on a child row reach the
 -- widget the row was drawn from.
 local function snap(st)
@@ -392,7 +404,7 @@ local function snap(st)
     return
   end
   local kids = {}
-  for i, c in ipairs(n:children() or {}) do
+  for i, c in ipairs(n:children():list()) do
     kids[i] = {node = c, type = c:type() or "?", id = c:id(), text = c:text(), size = c:size()}
   end
   local p = n:parent()
@@ -470,9 +482,9 @@ openInspector = function(node)
       drawReads(g, w, st.reads, I_READ_HEAD, I_READ_Y0)      -- 063.4: what this widget answers
       g:color(120, 120, 120); g:rect(0, 0, w, h); g:color()
   end)
-  -- bridge-owned: also destroyed on :reload/disable. What the row here says is that nothing goes on being
-  -- re-read for a window that has gone.
-  st.win:on("Close", function() inspectors[st] = nil end)
+  -- Re-read every frame the window stands, on the step, where no tree is held. The subscription is the
+  -- window's own, so the X takes it with the window: nothing goes on being re-read for one that has gone.
+  st.win:on("Update", function() snap(st) end)
   st.win:on("MouseDown", function(ev)
     local L = st.live
     local y = ev:y()
@@ -487,8 +499,6 @@ openInspector = function(node)
     end
     ev:preventDefault()                                         -- consume (don't fall through)
   end)
-
-  inspectors[st] = true
 end
 
 -- Opening one walks the inspected widget's own tree -- selectorsFor() is a fistful of s:ui():matchAll()
@@ -531,14 +541,10 @@ local function rebuild()
   end
 end
 
--- Update: the per-frame poll + the guard. This is the WoW-OnUpdate analog (the engine tick pump, 09).
-hafen.event():on("Update", function(dt)
-  -- Every Inspector standing, re-read here where no tree is held. Before the freeze check: freezing holds
-  -- the STACK still so it can be read, and an inspector is already pinned to one widget.
-  for st in pairs(inspectors) do
-    if st.win:exists() then snap(st) else inspectors[st] = nil end
-  end
-
+-- The per-frame poll + the guard. This is the WoW-OnUpdate analog (the engine tick pump, 09) -- hung on
+-- the stack window's own Update (see open()), so it runs on the step for every frame the window stands and
+-- for none after it has gone.
+local function poll()
   if frozen then return end                         -- held still: keep the last stack + box
   local m = hafen.ui():mouse()
   local mx, my = m:x(), m:y()
@@ -551,7 +557,7 @@ hafen.event():on("Update", function(dt)
   if leaf == last then return end
   last = leaf                                        -- hover CHANGED -> remember it and rebuild once
   rebuild()
-end)
+end
 
 -- ---- the selector panel (the bottom half of the stack window) --------------------------------------------
 
@@ -626,6 +632,199 @@ local function drawPanel(g, w, h)
   end
 end
 
+-- ======================================================================================= the tree column
+--
+-- THE RIGHT-HAND PANEL: the COMPLETE tree of the character on screen, as a treeview -- every widget the
+-- client has up for them, hidden or covered or not -- with nothing of the hover in it. Where the stack
+-- answers "what is under the cursor", this answers "what is there at all": the zero-size, the hidden and
+-- the covered widget a hover can never reach are all rows here.
+--   * IT IS LIVE, and not by polling: two subscriptions on the tree -- s:ui():on("*", "Added") and its
+--     "Removed" twin -- mark the rows dirty the moment a widget comes or goes, and they are rebuilt ONCE, on
+--     the next step, however many arrived in the same tick. A slow beat (TREE_REFRESH) rebuilds them as
+--     well, for what no event carries: a caption that changed, a widget hidden or shown.
+--   * A rebuild walks the EXPANDED rows only, so it costs what is on show and never the whole tree. The
+--     subscriptions are made while the window stands and dropped in close(): a closed window listens to
+--     nothing, the rule this whole file keeps.
+--   * [+] / [-] expands and collapses; the root starts open. A left click on a row PICKS it -- the row is
+--     tinted and the widget is outlined on the screen in orange, which is how you tell which of forty
+--     Labels this one is -- and a second click lets it go; a right click opens its Inspector.
+--   * Draw reads none of it. A widget read takes its tree's monitor, which this window's Draw may not take
+--     (api/threading.md), so the rows are built on the step and Draw formats what was built.
+
+local TREE_X0       = STACK_W              -- the column starts where the stack's part ends; a divider marks it
+local TREE_Y0       = STACK_Y0             -- first row y, level with the stack's
+local TREE_INDENT   = 12                   -- pixels per depth
+local TREE_MARKER_W = 22                   -- "[+]" and a gap, before the label
+local TREE_MAXROWS  = math.floor((WIN_H - 20 - TREE_Y0) / LINE)   -- rows that fit above the footer line
+local TREE_WHEEL    = 3                    -- rows per wheel notch
+local TREE_REFRESH  = 0.5                  -- seconds between the beats that re-read the rows on show
+local TREE_CHAR_W   = 6.7                  -- what a character of the default font is budgeted at, as elsewhere here
+
+local treeRoot                -- the root Widget the rows were built from: a different one is a different tree
+local treeSubscriptions = {}  -- the Added/Removed pair on that tree, dropped with it
+local expanded = {}           -- [widget] = true/false, the nodes the user opened or shut; nil is shut (the root: open)
+local treeRows = {}           -- the rows on show, top to bottom: { node=, depth=, kids=, open=, visible=, label= }
+local treeScroll = 0          -- rows scrolled past above the first drawn one
+local treePick                -- the picked node, outlined on the screen
+local pickPos, pickSize       -- its box, read on the step for the outline painter
+local treeDirty = true        -- the rows need rebuilding: a widget came or went, a click, a new tree
+local treeClock = 0           -- seconds since the last rebuild (the slow beat)
+local treeWho                 -- whose tree it is, for the header
+
+local function treeLabel(node, kids, open)
+  local id = node:id()
+  local text = node:text()
+  local label = node:type() or "?"
+  if id then label = label .. " #" .. id end
+  if text then label = label .. " '" .. text .. "'" end
+  if (kids > 0) and not open then label = label .. ("  (%d)"):format(kids) end
+  return label
+end
+
+-- Point the column at a tree -- or at none, which is what close() does. The subscriptions on the old tree
+-- go (:off() is idempotent, and a dead session's are gone already), the new tree gets its pair, and what
+-- was opened, picked and scrolled belonged to the old widgets and goes with them.
+local function resetTree(session, root)
+  for _, subscription in ipairs(treeSubscriptions) do subscription:off() end
+  treeSubscriptions, treeRows, expanded = {}, {}, {}
+  treePick, pickPos, pickSize = nil, nil, nil
+  treeScroll = 0
+  treeRoot = root
+  if not root then return end
+  treeSubscriptions[1] = session:ui():on("*", "Added", function() treeDirty = true end)
+  treeSubscriptions[2] = session:ui():on("*", "Removed", function(widget)
+    expanded[widget] = nil                     -- at Removed the widget is a key, not something to read
+    if treePick == widget then treePick = nil end
+    treeDirty = true
+  end)
+end
+
+-- One row per node, depth-first, descending into the open subtrees only. A shut node's children are
+-- fetched for their count -- the "(n)" on its row -- and not walked.
+local function treeWalk(node, depth, out)
+  local children = node:children():list()
+  local kids = #children
+  local open = (expanded[node] == true) and (kids > 0)
+  out[#out + 1] = {
+    node = node,
+    depth = depth,
+    kids = kids,
+    open = open,
+    visible = node:visible(),
+    label = treeLabel(node, kids, open),
+  }
+  if open then
+    for index = 1, kids do treeWalk(children[index], depth + 1, out) end
+  end
+end
+
+-- Rebuild the rows from the tree of the character on screen -- and re-root first where that is a different
+-- tree from last time: another character selected, a relog, the login screen.
+local function rebuildTree()
+  local session = hafen.session():current()
+  local root = session and session:ui():root()
+  if root ~= treeRoot then resetTree(session, root) end
+  treeWho = session and (session:character() or session:user()) or nil
+  local out = {}
+  if root then
+    if expanded[root] == nil then expanded[root] = true end     -- the root starts open
+    treeWalk(root, 0, out)
+  end
+  treeRows = out
+  treeScroll = math.max(0, math.min(treeScroll, #out - TREE_MAXROWS))
+end
+
+-- The column's share of the window's Update: the rebuild when something marked the rows dirty or the slow
+-- beat came round, and the picked widget's box for the outline -- two reads of one widget, so the outline
+-- follows a window being dragged frame by frame.
+local function treeTick(dt)
+  treeClock = treeClock + dt
+  if treeDirty or (treeClock >= TREE_REFRESH) then
+    treeDirty = false
+    treeClock = 0
+    rebuildTree()
+  end
+  if treePick then
+    pickPos, pickSize = treePick:rootPos(), treePick:size()
+  else
+    pickPos, pickSize = nil, nil
+  end
+end
+
+local function treeScrollBy(rows)
+  treeScroll = math.max(0, math.min(treeScroll + rows, #treeRows - TREE_MAXROWS))
+end
+
+-- The row drawn at y, or nil off the rows.
+local function treeRowAt(y)
+  if y < TREE_Y0 then return nil end
+  local line = math.floor((y - TREE_Y0) / LINE)
+  if line >= TREE_MAXROWS then return nil end
+  return treeRows[treeScroll + line + 1]
+end
+
+local function treeClick(event)
+  local row = treeRowAt(event:y())
+  if row then
+    local markerX0 = TREE_X0 + 6 + row.depth * TREE_INDENT
+    local onMarker = (event:x() >= markerX0) and (event:x() < markerX0 + TREE_MARKER_W)
+    if event:button() == 3 then
+      openLater(row.node)                                   -- its Inspector, as a click on a stack row opens
+    elseif onMarker and (row.kids > 0) then
+      expanded[row.node] = not row.open
+      treeDirty = true
+    elseif treePick == row.node then
+      treePick = nil                                        -- a second click lets it go
+    else
+      treePick = row.node
+    end
+  end
+  event:preventDefault()
+end
+
+local function drawTree(graphics, width, height)
+  graphics:color(90, 90, 90)
+  graphics:frect(TREE_X0, 6, 1, height - 12)                -- the divider
+  graphics:color()
+  local total = #treeRows
+  local shown = math.max(0, math.min(total - treeScroll, TREE_MAXROWS))
+  local header = "tree: no character on screen"
+  if treeWho then
+    header = ("tree of %s  (%d rows%s)"):format(treeWho, total,
+      (total > shown) and (", %d-%d"):format(treeScroll + 1, treeScroll + shown) or "")
+  end
+  graphics:text(header, TREE_X0 + 6, 4)
+  for line = 0, shown - 1 do
+    local row = treeRows[treeScroll + line + 1]
+    local y = TREE_Y0 + line * LINE
+    local x = TREE_X0 + 6 + row.depth * TREE_INDENT
+    local picked = (row.node == treePick)
+    if picked then
+      graphics:color(90, 65, 20, 200)
+      graphics:frect(TREE_X0 + 2, y - 1, TREE_W - 4, LINE)
+      graphics:color()
+    end
+    if row.kids > 0 then
+      graphics:color(150, 190, 255)
+      graphics:text(row.open and "[-]" or "[+]", x, y)
+      graphics:color()
+    end
+    if picked then
+      graphics:color(240, 190, 90)
+    elseif not row.visible then
+      graphics:color(120, 120, 120)                         -- hidden: exactly what a hover never reaches
+    end
+    local chars = math.floor((TREE_W - 12 - row.depth * TREE_INDENT - TREE_MARKER_W) / TREE_CHAR_W)
+    graphics:text(ellipsis(row.label, math.max(8, chars)), x + TREE_MARKER_W, y)
+    graphics:color()
+  end
+  graphics:color(150, 150, 120)
+  graphics:text("[+] opens / click outlines / right-click inspects", TREE_X0 + 6, height - 16)
+  graphics:color()
+end
+
+-- ======================================================================================== the stack window
+
 -- The window draws the stack text: root at the TOP, deeper widgets indented below (like /framestack).
 -- Each row is CLICKABLE (see onClick) to open that widget's inspector.
 local function drawStack(g, w, h)
@@ -665,6 +864,7 @@ local function drawStack(g, w, h)
   drawReads(g, w, reads, READ_HEAD, READ_Y0)                       -- 063.4: what the hovered widget answers
   g:color(150, 150, 120)
   g:text("click a row to inspect / a selector to log it (the freeze hotkey holds it)", 6, h - 16)
+  drawTree(g, w, h)                                                -- the column beside all of that
   g:color(120, 120, 120); g:rect(0, 0, w, h); g:color()            -- 1px border
 end
 
@@ -691,46 +891,97 @@ local function stackClick(ev)
   ev:preventDefault()                                               -- consume
 end
 
--- The HUD overlay draws the green highlight box over the hovered widget, in root coords (like WoW's outline).
+-- The HUD overlay draws the green highlight box over the hovered widget, in root coords (like WoW's outline),
+-- and an orange one over the widget picked in the tree column.
 local function drawOutline(g, w, h)
   if hoverPos and hoverSize then
     g:color(80, 230, 90); g:rect(hoverPos.x, hoverPos.y, hoverSize.w, hoverSize.h); g:color()
   end
+  if pickPos and pickSize then
+    g:color(240, 170, 60); g:rect(pickPos.x, pickPos.y, pickSize.w, pickSize.h); g:color()
+  end
 end
 
+-- The window has gone (the X) or is about to (:widgetstack): forget everything that was about it. Called
+-- while it still stands -- Close fires before the client destroys the window, and the toggle calls this
+-- before destroying it -- which is when its place can still be read, so the next open() puts it back there.
+-- The outline goes with the window, and so do what was hovered and what the tree column listened to: a
+-- closed window holds nothing still, hovers nothing and hears nothing.
+local function close()
+  place = win:position()
+  win = nil
+  hafen.ui():overlay():remove("outline")
+  last, rows, insp, reads = nil, {}, nil, {}
+  hoverPos, hoverSize = nil, nil
+  frozen = false
+  resetTree(nil, nil)
+  treeWho = nil
+end
+
+-- Build the window, and with it everything that runs only while it stands: the poll and the tree's beat,
+-- as its own Update, and the outline overlay. All of it ends with it -- the Update because the subscription
+-- is the window's, the overlay and the tree's subscriptions because close() drops them -- so a closed
+-- widgetstack costs nothing a frame.
+local function open()
+  if win then return end
+  treeDirty = true                  -- the first step builds the column
+  win = hafen.ui():window()
+    :title("Widget Stack")
+    :size(WIN_W, WIN_H)
+    :position(place and place.x or 60, place and place.y or 60)
+  -- widget:on(key, fn) hands back a SUB, not the widget (041.3), so none of these can sit mid-chain above.
+  win:on("Draw", function(ev) drawStack(ev:g(), ev:w(), ev:h()) end)
+  win:on("Update", function(dt)
+    poll()
+    treeTick(dt)
+  end)
+  win:on("MouseDown", function(event)
+    if event:x() >= TREE_X0 then treeClick(event) else stackClick(event) end
+  end)
+  win:on("Wheel", function(event)
+    if event:x() < TREE_X0 then return end             -- over the stack's part the wheel is nobody's
+    treeScrollBy(((event:amount() > 0) and 1 or -1) * TREE_WHEEL)
+    event:preventDefault()
+  end)
+  -- The chrome's close button destroys the window, so there is nothing left to hide: what is kept
+  -- afterwards is "there is no window", and :widgetstack builds a new one where this one stood.
+  win:on("Close", function()
+    close()
+    hafen.log():write("widgetstack: window closed (X) -- :widgetstack to bring it back")
+  end)
+  hafen.ui():overlay():add("outline"):draw(drawOutline)
+  hafen.log():write("widgetstack: window up -- hover the UI; click a row to inspect; :selector logs the hovered widget's selector; :widgetstack toggles it, the freeze hotkey holds it")
+end
+
+-- The first character to enter the world puts the window up. After that it is :widgetstack's to open and
+-- close: a second login, or a relog, leaves it as the user left it.
+local announced = false
 hafen.event():on("SessionEnteredWorld", function()
-  if not win then
-    win = hafen.ui():window()
-      :title("Widget Stack")
-      :size(580, 574)                 -- 049.4: a chain candidate is a long line; 063.4: and the read block
-      :position(60, 60)
-    -- widget:on(key, fn) hands back a SUB, not the widget (041.3), so none of these can sit mid-chain above.
-    win:on("Draw", function(ev) drawStack(ev:g(), ev:w(), ev:h()) end)
-    win:on("Close", function() hafen.log():write("widgetstack: window closed (X) -- :widgetstack to bring it back") end)
-    win:on("MouseDown", stackClick)
-    hafen.log():write("widgetstack: window up -- hover the UI; click a row to inspect; :selector logs the hovered widget's selector; :widgetstack toggles it, the freeze hotkey holds it")
-  end
-  if not overlay then
-    overlay = hafen.ui():overlay():add("outline"):draw(drawOutline)
-  end
+  if announced then return end
+  announced = true
+  open()
 end)
 
--- :widgetstack -- toggle the window (WoW /framestack on/off).
+-- :widgetstack -- toggle the window (WoW /framestack on/off): destroy it while it stands, build it when not.
 hafen.console():on("widgetstack", function(args)
-  if not win then hafen.log():write(":widgetstack -> not up yet (enter the world first)"); return end
-  -- The line is answered inside the CHARACTER's tree and this window stands in the layer, so the write
-  -- goes to the step, holding neither (api/threading.md).
+  -- The line is answered inside the CHARACTER's tree and the window stands in the layer, so the build and
+  -- the destroy both go to the step, holding neither (api/threading.md).
   hafen.timer():after(0, function()
-    local show = not win:visible()
-    win:visible(show)
-    hafen.log():write((":widgetstack -> window %s"):format(show and "shown" or "hidden"))
+    if win then
+      local standing = win
+      close()                                       -- forget it while it still stands: its place is read there
+      standing:destroy()
+    else
+      open()
+    end
+    hafen.log():write((":widgetstack -> window %s"):format(win and "opened" or "closed"))
   end)
 end)
 
 -- :selector -- log the hovered widget's full selector report. The window shows it too, but a logged line is
 -- SELECTABLE, which is how the string actually gets out of the client and into your addon.
 hafen.console():on("selector", function(args)
-  if not insp then hafen.log():write(":selector -> nothing hovered yet (move the mouse over the UI)"); return end
+  if not insp then hafen.log():write(":selector -> nothing hovered (open the window with :widgetstack and move the mouse over the UI)"); return end
   hafen.log():write((":selector -> class=%s role=%s [%s=] %s res=%s anchor=%s")
     :format(insp.cls or "?", insp.role or "nil", insp.ownKey,
             insp.own and ("'" .. insp.own .. "'") or "-", insp.res or "-",
@@ -748,8 +999,9 @@ end)
 -- "freeze" -- freeze/unfreeze the stack so you can move the mouse INTO the window to read + click it without
 -- the stack changing under you. Declared through hafen.client():options():keybindings():on(name, fn); it
 -- starts UNBOUND (D-047) -- assign it in Options > Keybindings > Widgetstack (suggested: Ctrl+Shift+F), where
--- the choice is persisted exactly like a built-in binding.
+-- the choice is persisted exactly like a built-in binding. Nothing to hold while no window stands.
 hafen.client():options():keybindings():on("freeze", function()
+  if not win then hafen.log():write(":widgetstack freeze -> no window up (:widgetstack opens it)"); return end
   frozen = not frozen
   hafen.log():write((":widgetstack freeze %s"):format(frozen and "ON" or "OFF"))
 end)

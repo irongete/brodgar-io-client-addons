@@ -20,6 +20,24 @@ The API is documented in the client repository, under
 takes an empty folder to a working addon. Nothing here is a library to build on: a page of the reference
 carries its own example.
 
+## Publish one
+
+[`publish.js`](publish.js) zips one addon folder and uploads it to [the hub](https://brodgar.io/addons),
+where the client's **Browse** tab finds it. It needs Node 22 and a token from
+[Configuration](https://brodgar.io/addons/settings), as `BRODGAR_TOKEN=bio_…` in a `.env` file at the
+root of this repo (git ignores it):
+
+```bash
+npm run publish -- gob-cache-map                  # 1.0.0 -> 1.0.1 in manifest.json, then upload
+npm run publish -- gob-cache-map --version 2.0.0  # this version instead
+```
+
+Without `--version` the manifest's `X.Y.Z` becomes `X.Y.(Z+1)`. Either way the version is written to
+`manifest.json` before packing — the hub reads it from the manifest inside the zip — and put back if the
+upload fails; commit it afterwards. The `--` matters: without it npm keeps `--version` for itself, so
+`npm run publish gob-cache-map 2.0.0` is the short form. Run `npm link` once and `publish gob-cache-map`
+works from anywhere.
+
 ## The addons
 
 | Addon | What it does | Permissions it asks for |
@@ -33,7 +51,7 @@ carries its own example.
 | `essentials` | What the client does for a character the moment it enters the world: the toggles, the inventory and the movement speed, each a row in Options ▸ AddOns | `menugrid.use`, `speed.set` |
 | `eventstack` | A live log of what the client does: every message out, every update in, every event on the bus, and every widget coming and going — narrowed by session, widget and event, and one click for what a row carried | — |
 | `farming-helper` | One key puts the growth stage over every planted crop in sight, read from the state bytes the server sent with it | — |
-| `gob-cache-map` | Writes down every tree and boulder you walk past, and finds one again: search a name, pick a row, and the map goes there over a heatmap of the rest | — |
+| `gob-cache-map` | Writes down every tree and boulder you walk past, and finds one again: search a name, pick a row, and the map goes there | — |
 | `hitboxes` | Three modes for the footprint of every game object in view — and of the building you are placing: off, a blue patch laid on the terrain and hidden by whatever stands in front of it, and the same patch told the world may not hide it | — |
 | `immersion` | Labels the nearest game object within a 180-degree cone in front of the character on screen with a floating "this", following it as you move and clearing it when nothing qualifies | `gob.click` |
 | `inspector-gadget` | A magnifying glass in the action menu | `menugrid.use`, `gob.click` |
@@ -53,7 +71,7 @@ carries its own example.
 | `voice` | Proximity voice over `voice.brodgar.io`: one link held for the client's life, a page of settings, push-to-talk, voice detection or an open microphone, a speaker drawn over whoever is talking, a window with a mute and a volume per player, and a mute petal on a player's ring | `voice.connect` |
 | `wasd-movement` | Walk with W, A, S and D | `player.move`, `widget.send` |
 | `water-meter` | A stamina-shaped bar counting every drop of water you are carrying | — |
-| `widgetstack` | What a widget is and how to name it — a live stack of the widgets under the cursor, a click-to-inspect window over `hafen.ui()`'s tree reads, and a selector inspector that offers only selectors which actually resolve to the widget you are pointing at | — |
+| `widgetstack` | What a widget is and how to name it — a live stack of the widgets under the cursor, a click-to-inspect window over `hafen.ui()`'s tree reads, a selector inspector that offers only selectors which actually resolve to the widget you are pointing at, and a live treeview of every widget the character has up, to expand, outline and inspect | — |
 
 An addon with a `—` in the last column reads the game and writes only what is client-local; the others
 act on your behalf through the key they name, and the client asks you once before they may.

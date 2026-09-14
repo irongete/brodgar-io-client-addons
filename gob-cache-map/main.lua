@@ -6,28 +6,34 @@
 --
 -- WHAT IS NEVER WRITTEN DOWN TWICE. A tree does not move, so a tree IS its place: the SERVER's grid id plus
 -- the offset inside that grid -- exactly what Position:info() hands back, and the one anchor no segment
--- merge ever rewrites. The cache is keyed on it, `entries[gridId]["x,y"] = kind`, so seeing the same oak on
--- Monday, on Tuesday, and out of a second character's eyes writes ONE row, with no scan to find that out. A
--- DIFFERENT resource at a place we already hold overwrites it, which is what a mined-out boulder looks like.
+-- merge ever rewrites. The cache is keyed on it, one row of `objects` per (grid, x, y), so seeing the same
+-- oak on Monday, on Tuesday, and out of a second character's eyes writes ONE row, with no scan to find that
+-- out. A DIFFERENT resource at a place we already hold overwrites it, which is what a mined-out boulder
+-- looks like.
 --
--- WHERE IT IS KEPT. `savedata/account/gob-cache-map.json` -- one JSON file, written by the engine. The
--- sandbox installs no `io`, so a file inside the addon's own folder is not something an addon can write; a
--- saved variable IS that JSON file. The scope is the account because the recorded map is one database for
--- every character you play in that world, and so is this.
+-- WHERE IT IS KEPT. Two tables of the addon's own file, `savedata/gob-cache-map/gob-cache-map.sqlite`:
+-- `kinds` holds each resource name once, and `objects` one row per thing seen, keyed by its place. A row is
+-- in the file the moment it is written, nothing is ever serialised whole, and what the window needs is read
+-- out of the file by the query that needs it -- so a cache of a few hundred thousand objects costs the frame
+-- what one of a hundred does.
 --
 -- HOW IT LOOKS. The map panel is the client's own minimap art -- `grid:image(level)` is what the corner map
--- draws -- with a heatmap of whatever the filter matches laid over it and the search hits marked on top. So
--- "where are the firs" is answered as a picture before you have read a single row.
+-- draws -- with the search hits marked on top, each as the game's own minimap icon for the thing. So "where
+-- are the firs" is answered as a picture before you have read a single row.
 --
---   +- Gob Cache Map ----------------------------------------------+
---   | [fir............] [x] Trees [x] Boulders   [ Here ] [ View ]  |
---   | +--------------+ +---------------------------------------+   |
---   | | 1. Fir   12t | |      recorded ground (grid:image)      |   |
---   | | 2. Fir   40t | |      + heat cells + hit marks          |   |
---   | | 3. Fir   77t | |      + you, and the crosshair          |   |
---   | +--------------+ +---------------------------------------+   |
---   | 8412 cached (7190 trees, 1222 boulders)  34 shown  zoom 0     |
---   +--------------------------------------------------------------+
+--   +- Gob Cache Map --------------------------------------------------+
+--   | [fir............] [x] Trees [x] Boulders                 [ Here ] |
+--   | +--------------+ +-------------------------------------------+   |
+--   | | 1. Fir   12t | |        recorded ground (grid:image)       |   |
+--   | | 2. Fir   40t | |        + hit marks                        |   |
+--   | | 3. Fir   77t | |        + you, and the crosshair           |   |
+--   | +--------------+ +-------------------------------------------+   |
+--   | 8412 cached (7190 trees, 1222 boulders)  34 shown  zoom 0         |
+--   +------------------------------------------------------------------+
+--
+-- TWO WORDS, USED ONE WAY EACH. A KIND is a row of KINDS below -- Trees, Boulders -- the thing a checkbox
+-- switches. A SPECIES is one resource name inside a kind -- gfx/terobjs/trees/fir -- the thing a list row
+-- names. On disk a species is a row of the `kinds` table, and an object's `kind` column is its species id.
 --
 -- WHY THERE IS NO `GobAdded` HANDLER. Subscribing to it makes the client hold EVERY arriving object out of
 -- the scene until the handler has run -- a cost paid by the whole client, for immediacy a cache has no use
@@ -35,800 +41,1115 @@
 
 local NAME = "Gob Cache Map"
 
-local GRID       = 1100    -- world units across one map grid (100 tiles of 11)
-local TILE       = 11      -- world units across one tile
-local SWEEP      = 3       -- seconds between world sweeps
-local PRUNE_R    = 60      -- only forget what the character is standing right next to
-local PRUNE_MISS = 3       -- ...and only after this many sweeps in a row have missed it
-local FLUSH      = 20      -- seconds between disk flushes while the cache is growing
-local MAX_ROWS   = 200     -- hits the list shows at once
-local LOC_TTL    = 60      -- seconds a grid's segment coord is trusted (a merge moves them)
-local SETTLE     = 2       -- seconds between a heatmap rebuild and between two re-rankings of the list
-local MOVED      = 55      -- world units the character walks before the list is worth re-ranking
+local GRID_SIZE = 1100                -- world units across one map grid (100 tiles of 11)
+local TILE_SIZE = 11                  -- world units across one tile
+local SWEEP_SECONDS = 3               -- seconds between two sweeps of the world
+local PRUNE_RADIUS = 60               -- only forget what the character is standing right next to
+local PRUNE_MISSES = 3                -- ...and only after this many sweeps in a row have missed it
+local CELLS_KEEP_SECONDS = 120        -- seconds a grid's cells stay in memory after a character was last near it
+local MAX_ROWS = 200                  -- hits the list shows at once
+local PLACE_TRUST_SECONDS = 60        -- seconds a grid's place in its segment is trusted (a merge moves them)
+local ICONS_REFRESH_SECONDS = 60      -- seconds between two reads of the client's icon registry
+local SETTLE_SECONDS = 2              -- seconds between two re-rankings of the list; also how long a miss in the map database is trusted
+local WALKED_FAR = 55                 -- world units the character walks before the list is worth re-ranking
 
--- The panel, in design pixels. A heat cell is 25 px at every zoom, which is what the `div` below buys.
-local MAPW, MAPH = 430, 372
-local LISTW      = 232
-local ICON, HALF = 14, 7   -- the box a hit's minimap icon is drawn in, and half of it
-local ZOOM       = { { s = 1, div = 4 }, { s = 2, div = 2 }, { s = 4, div = 1 } }
+-- The panel, in design pixels.
+local MAP_WIDTH, MAP_HEIGHT = 430, 372
+local LIST_WIDTH = 232
+local TOOLBAR_HEIGHT = 26             -- the search field, the checkboxes and the button
+local GAP = 6                         -- between the list and the map
+local STATUS_HEIGHT = 20              -- the line under them
+local CHECK_WIDTH = 76
+local BUTTON_WIDTH = 84
+local ICON_SIZE = 14                  -- the box a hit's minimap icon is drawn in
+local ICON_HALF = math.floor(ICON_SIZE / 2)
+local DRAWING_SIZE = 100              -- design pixels across one of the client's minimap drawings, at every zoom
+local PICK_RADIUS = 8                 -- design pixels around a mark that a click on it may land in
+local DRAG_THRESHOLD = 4              -- design pixels the pointer moves before a press is a drag and not a click
+
+-- The zoom levels, 0 to 2: how many grids one drawing covers at each.
+local GRIDS_PER_DRAWING = { 1, 2, 4 }
 
 -- A kind is a substring of the resource name, because that is the only thing the client can be asked. Add a
--- row here and the cache, the filter, the list and the heatmap all pick it up; nothing else knows the set.
+-- row here and the cache, the filter and the list all pick it up; nothing else knows the set.
 local KINDS = {
-  { key = "tree",    label = "Trees",    match = "terobjs/trees/",    color = {  96, 200, 112 } },
-  { key = "boulder", label = "Boulders", match = "terobjs/bumlings/", color = { 210, 192, 150 } },
+    { key = "tree",    label = "Trees",    match = "terobjs/trees/",    color = {  96, 200, 112 } },
+    { key = "boulder", label = "Boulders", match = "terobjs/bumlings/", color = { 210, 192, 150 } },
 }
 
 -- ---------------------------------------------------------------- the cache on disk
 
-local db = hafen.store():var("cache")
-local ui = hafen.store():var("ui")
+local store = hafen.store()
+local settings = store:var("ui")      -- the window's own settings: a var is the shape for those
 
-if db.v ~= 1 then                                  -- no layout but this one is ever read
-  for k in pairs(db) do db[k] = nil end
-  db.v = 1
+-- The cache is two tables of the addon's own file. A species is one resource name held once, so an object
+-- costs one small integer; an object is its place -- the server's grid id and the offset inside it -- and
+-- the species standing there. The key IS the identity: the same oak seen twice is one row, and :put says so.
+local speciesTable = store:table("kinds")
+    :column("id", "integer"):column("res", "text"):column("icon", "text")
+    :key("id"):create()
+local objectsTable = store:table("objects")
+    :column("grid", "text"):column("x", "integer"):column("y", "integer"):column("kind", "integer")
+    :key("grid", "x", "y")
+    :index("kind", "grid")            -- "which grids hold a wanted species", off the index alone
+    :create()
+
+-- What is known about each species, by its id: rebuilt from the table on load, and none of it stored twice.
+local speciesResource = {}            -- id -> the resource name
+local speciesIconName = {}            -- id -> the display name of its minimap icon, once an object has told us
+local speciesKind = {}                -- id -> the row of KINDS it belongs to
+local speciesLabel = {}               -- id -> what the list calls it: "Fir"
+local speciesIdByResource = {}        -- resource name -> id
+local highestSpeciesId = 0
+local speciesCount = 0
+
+local function kindOfResource(resource)
+    for _, kind in ipairs(KINDS) do
+        if resource:find(kind.match, 1, true) then
+            return kind
+        end
+    end
+    return nil
 end
-db.kinds   = db.kinds   or {}                      -- index -> resource name, so a row costs one number
-db.icons   = db.icons   or {}                      -- index -> that kind's minimap icon, by DISPLAY name
-db.entries = db.entries or {}                      -- gridId -> { ["x,y"] = kind index }
 
-local kindOf, kindClass, kindLabel = {}, {}, {}    -- rebuilt on load; none of it is stored
-
-local function classify(res)
-  for _, k in ipairs(KINDS) do
-    if res:find(k.match, 1, true) then return k end
-  end
-  return nil
+local function labelOfResource(resource)
+    local lastPart = resource:match("([^/]+)$") or resource
+    return lastPart:sub(1, 1):upper() .. lastPart:sub(2)
 end
 
-local function pretty(res)
-  local last = res:match("([^/]+)$") or res
-  return last:sub(1, 1):upper() .. last:sub(2)
+local function learnSpecies(id, resource, iconName)
+    speciesResource[id] = resource
+    speciesIconName[id] = iconName
+    speciesKind[id] = kindOfResource(resource)
+    speciesLabel[id] = labelOfResource(resource)
+    speciesIdByResource[resource] = id
+    if id > highestSpeciesId then
+        highestSpeciesId = id
+    end
+    speciesCount = speciesCount + 1
 end
 
-local function learn(i)
-  local res = db.kinds[i]
-  kindOf[res]  = i
-  kindClass[i] = classify(res)
-  kindLabel[i] = pretty(res)
+for _, row in ipairs(speciesTable:list("ORDER BY id")) do
+    learnSpecies(row.id, row.res, row.icon)
 end
 
-for i = 1, #db.kinds do learn(i) end
-
-local function kindId(res)
-  local i = kindOf[res]
-  if i then return i end
-  db.kinds[#db.kinds + 1] = res
-  i = #db.kinds
-  learn(i)
-  return i
+local function speciesIdOf(resource)
+    local id = speciesIdByResource[resource]
+    if id then
+        return id
+    end
+    id = highestSpeciesId + 1         -- never a hole's number: a row could still carry it
+    speciesTable:put{ id = id, res = resource }   -- the icon is asked of the first object seen, below
+    learnSpecies(id, resource, nil)
+    return id
 end
 
 -- A hit is drawn as the client's OWN minimap icon for that thing. `gob:icon()` answers the icon's DISPLAY
 -- name -- its tooltip, and the very string `hafen.map():icon()` names a category by, out of the same call --
--- so the registry is what turns one into the resource `g:resource` draws. That registry grows as a character
--- sees new types, so a name that does not resolve yet is asked again rather than written off.
-local iconRes, iconAt, iconAsks = {}, 0, {}        -- kind index -> resource | false; when; asks made this run
-local ICON_ASKS = 10                               -- give up asking a kind after this many sightings
+-- so the registry is what turns one into the resource `graphics:resource` draws. That registry grows as a
+-- character sees new types, so a name that does not resolve yet is asked again rather than written off.
+local MAX_ICON_ASKS = 10              -- give up asking a species for its icon after this many sightings
 
-local function refreshIcons()
-  local byName = {}
-  for _, cat in ipairs(hafen.map():icon():list()) do
-    local n = cat:name()
-    if n then byName[n] = cat:res() end
-  end
-  iconRes = {}
-  for i = 1, #db.kinds do
-    local want = db.icons[i]
-    iconRes[i] = (want and byName[want]) or false
-  end
-  iconAt = os.time()
+local iconResourceOfSpecies = {}      -- species id -> the icon's resource, or false for none yet
+local iconsResolvedAt = 0             -- when the registry was last read; 0 asks for it now
+local iconAsksOfSpecies = {}          -- species id -> how many objects were asked this run
+
+local function resolveIcons()
+    local resourceByName = {}
+    for _, category in ipairs(hafen.map():icon():list()) do
+        local name = category:name()
+        if name then
+            resourceByName[name] = category:res()
+        end
+    end
+    iconResourceOfSpecies = {}
+    for id = 1, highestSpeciesId do
+        local wanted = speciesIconName[id]
+        iconResourceOfSpecies[id] = (wanted and resourceByName[wanted]) or false
+    end
+    iconsResolvedAt = os.time()
 end
 
-local counts, total = {}, 0
+local countByKind = {}                -- kind key -> how many objects of that kind are cached
+local totalObjects = 0
 
-local function recount()
-  counts, total = {}, 0
-  for _, cells in pairs(db.entries) do
-    for _, ki in pairs(cells) do
-      local c = kindClass[ki]
-      local key = c and c.key or "other"
-      counts[key] = (counts[key] or 0) + 1
-      total = total + 1
+local function recount()              -- one aggregate off the (kind, grid) index, not a walk
+    countByKind, totalObjects = {}, 0
+    for _, row in ipairs(store:query("SELECT kind, count(*) AS n FROM objects GROUP BY kind")) do
+        local kind = speciesKind[row.kind]
+        local key = kind and kind.key or "other"
+        countByKind[key] = (countByKind[key] or 0) + row.n
+        totalObjects = totalObjects + row.n
     end
-  end
 end
 recount()
 
+local function addToCount(kindKey, delta)
+    countByKind[kindKey] = (countByKind[kindKey] or 0) + delta
+end
+
+local function countsText()           -- "7190 trees, 1222 boulders"
+    local parts = {}
+    for _, kind in ipairs(KINDS) do
+        parts[#parts + 1] = (countByKind[kind.key] or 0) .. " " .. kind.key .. "s"
+    end
+    return table.concat(parts, ", ")
+end
+
+-- A cell is one spot inside a grid, named "x,y" -- the key the sweep and the prune agree on.
+local function cellKey(x, y)
+    return x .. "," .. y
+end
+
+local function cellCoords(key)
+    local x, y = key:match("^(-?%d+),(-?%d+)$")
+    return tonumber(x), tonumber(y)
+end
+
+-- The cells of one grid as the sweep and the prune read and write them, `{ ["x,y"] = species id }`: read
+-- out of the file the first time a grid is touched and kept while it goes on being touched. Only this addon
+-- writes the file and every write goes through here, so what is held is what the file holds. A grid nobody
+-- has stood near for a while is dropped: the memory is the characters' surroundings, never the whole cache.
+local cellsByGrid = {}                -- gridId -> { touchedAt = when, cells = { ["x,y"] = species id } }
+
+local function cellsOfGrid(gridId)
+    local entry = cellsByGrid[gridId]
+    if not entry then
+        local cells = {}
+        for _, row in ipairs(objectsTable:list("WHERE grid = ?", gridId)) do
+            cells[cellKey(row.x, row.y)] = row.kind
+        end
+        entry = { cells = cells }
+        cellsByGrid[gridId] = entry
+    end
+    entry.touchedAt = os.time()
+    return entry.cells
+end
+
+local function dropIdleCells()
+    local now = os.time()
+    for gridId, entry in pairs(cellsByGrid) do
+        if (now - entry.touchedAt) > CELLS_KEEP_SECONDS then
+            cellsByGrid[gridId] = nil
+        end
+    end
+end
+
 -- ---------------------------------------------------------------- writing one down
 
-local dirty     = true         -- the heatmap no longer matches the cache
-local unsaved   = false
-local lastFlush = os.time()
+-- The grids that hold something the current filter wants -- what the search ranks. Read out of the file
+-- when the filter changes (`matchingGrids`, below) and kept current by hand in between: a row written into
+-- a grid not on it puts the grid on it.
+local gridsWithMatches = nil          -- gridId -> true
+local gridsWithMatchesFor = nil       -- the filter signature they were read for
+local wantedSpecies = {}              -- species id -> whether the current filter wants it
 
-local function bump(key, by)
-  counts[key] = (counts[key] or 0) + by
+-- Writes the gob down when it is one of ours and has a place, and answers where it went -- the grid id and
+-- the cell key -- whether or not it was new. Nil for anything that is not ours to keep.
+local function rememberObject(gob)
+    local resource = gob:name()
+    if not resource then
+        return nil
+    end
+    local kind = kindOfResource(resource)
+    if not kind then
+        return nil
+    end
+    local position = gob:position()
+    local place = position and position:info()
+    if not place then
+        return nil                    -- ground this character cannot anchor: not ours to keep
+    end
+    local cellX, cellY = math.floor(place.x + 0.5), math.floor(place.y + 0.5)
+    local key = cellKey(cellX, cellY)
+    local cells = cellsOfGrid(place.gridId)
+
+    local speciesId = speciesIdOf(resource)
+    local speciesIdBefore = cells[key]
+    -- Asked of the live object, because that is the only thing that knows: a resource name says nothing about
+    -- whether the game draws an icon for it. It answers nil while the icon's own resource is still loading, so
+    -- a species is asked again on its next sighting -- and only so many times, since most things have none.
+    if (speciesIconName[speciesId] == nil) and ((iconAsksOfSpecies[speciesId] or 0) < MAX_ICON_ASKS) then
+        iconAsksOfSpecies[speciesId] = (iconAsksOfSpecies[speciesId] or 0) + 1
+        local iconName = gob:icon()
+        if iconName then
+            speciesTable:put{ id = speciesId, res = resource, icon = iconName }
+            speciesIconName[speciesId] = iconName
+            iconsResolvedAt = 0
+        end
+    end
+    if speciesIdBefore == speciesId then
+        return place.gridId, key      -- the same thing, in the same grid, at the same spot
+    end
+    objectsTable:put{ grid = place.gridId, x = cellX, y = cellY, kind = speciesId }   -- in the file when this returns
+    cells[key] = speciesId
+    if speciesIdBefore then
+        local kindBefore = speciesKind[speciesIdBefore]
+        if kindBefore then
+            addToCount(kindBefore.key, -1)
+        end
+    else
+        totalObjects = totalObjects + 1
+    end
+    addToCount(kind.key, 1)
+    if gridsWithMatches and wantedSpecies[speciesId] then
+        gridsWithMatches[place.gridId] = true
+    end
+    return place.gridId, key
 end
 
--- Returns the cell key when the gob is one of ours and has a place, whether or not it was new.
-local function remember(gob)
-  local res = gob:name()
-  if not res then return nil end
-  local c = classify(res)
-  if not c then return nil end
-  local p = gob:position()
-  local at = p and p:info()
-  if not at then return nil end                    -- ground this character cannot anchor: not ours to keep
-
-  local cell  = math.floor(at.x + 0.5) .. "," .. math.floor(at.y + 0.5)
-  local cells = db.entries[at.gridId]
-  if not cells then cells = {}; db.entries[at.gridId] = cells end
-
-  local ki, was = kindId(res), cells[cell]
-  -- Asked of the live object, because that is the only thing that knows: a resource name says nothing about
-  -- whether the game draws an icon for it. It answers nil while the icon's own resource is still loading, so
-  -- a kind is asked again on its next sighting -- and only so many times, since most things have none.
-  if (db.icons[ki] == nil) and ((iconAsks[ki] or 0) < ICON_ASKS) then
-    iconAsks[ki] = (iconAsks[ki] or 0) + 1
-    local ic = gob:icon()
-    if ic then db.icons[ki], iconAt, unsaved = ic, 0, true end
-  end
-  if was == ki then return cell end                -- the same thing, in the same grid, at the same spot
-  cells[cell] = ki
-  if was then
-    local old = kindClass[was]
-    if old then bump(old.key, -1) end
-  else
-    total = total + 1
-  end
-  bump(c.key, 1)
-  dirty, unsaved = true, true
-  return cell
-end
-
-local function forget(gridId, cell)
-  local cells = db.entries[gridId]
-  local ki = cells and cells[cell]
-  if not ki then return end
-  cells[cell] = nil
-  local c = kindClass[ki]
-  if c then bump(c.key, -1) end
-  total = total - 1
-  dirty, unsaved = true, true
+local function forgetObject(gridId, key)
+    local cells = cellsOfGrid(gridId)
+    local speciesId = cells[key]
+    if not speciesId then
+        return
+    end
+    local cellX, cellY = cellCoords(key)
+    objectsTable:remove(gridId, cellX, cellY)
+    cells[key] = nil
+    local kind = speciesKind[speciesId]
+    if kind then
+        addToCount(kind.key, -1)
+    end
+    totalObjects = totalObjects - 1
 end
 
 -- ---------------------------------------------------------------- where a grid sits, this minute
 
-local locs, locsAt = {}, 0
+-- Every read of the map database may answer nil for a moment: the file's lock is held by the client's own
+-- saves and renders, and a read never waits on it. So a nil is remembered for a beat only, never for the
+-- minute a real answer is -- a busy frame must not read as "the database has not got it".
+local gridPlaces = {}                 -- gridId -> { place = { segmentId, gridX, gridY } or false, askedAt = when }
+local gridPlacesClearedAt = 0
 
-local function gridLoc(gid)                        -- gridId -> { seg, sx, sy }, or nil
-  local now = os.time()
-  if (now - locsAt) > LOC_TTL then locs, locsAt = {}, now end
-  local l = locs[gid]
-  if l ~= nil then return l or nil end             -- `false` is the memo for "the database has not got it"
-  local gr  = hafen.map():grid():get(gid)
-  local sc  = gr and gr:segmentCoord()
-  local seg = gr and gr:segment()
-  if not (sc and seg) then locs[gid] = false; return nil end
-  l = { seg = seg:id(), sx = sc.x, sy = sc.y }
-  locs[gid] = l
-  return l
+local function placeOfGrid(gridId)
+    local now = os.time()
+    if (now - gridPlacesClearedAt) > PLACE_TRUST_SECONDS then
+        gridPlaces, gridPlacesClearedAt = {}, now
+    end
+    local known = gridPlaces[gridId]
+    if known and (known.place or ((now - known.askedAt) < SETTLE_SECONDS)) then
+        return known.place or nil
+    end
+    local grid = hafen.map():grid():get(gridId)
+    local coord = grid and grid:segmentCoord()
+    local segment = grid and grid:segment()
+    if not (coord and segment) then
+        gridPlaces[gridId] = { place = false, askedAt = now }
+        return nil
+    end
+    local place = { segmentId = segment:id(), gridX = coord.x, gridY = coord.y }
+    gridPlaces[gridId] = { place = place, askedAt = now }
+    return place
 end
 
-local function playerAt(s)                         -- the durable form of where a character stands, or nil
-  s = s or hafen.session():current()
-  local me = s and s:player() and s:player():gob()
-  local p  = me and me:position()
-  return p and p:info() or nil
+-- The grid at a segment coord, remembered for the same reason: a busy answer is the one seen last, and a
+-- coord the database has nothing at is asked again next time, which is one lookup. Swept every
+-- PLACE_TRUST_SECONDS, since a merge moves grids between coords.
+local gridsAtCoord = {}
+local gridsAtCoordClearedAt = 0
+
+local function gridAtCoord(frame, gridX, gridY)
+    local now = os.time()
+    if (now - gridsAtCoordClearedAt) > PLACE_TRUST_SECONDS then
+        gridsAtCoord, gridsAtCoordClearedAt = {}, now
+    end
+    local key = frame.segmentId .. "|" .. gridX .. "," .. gridY
+    local grid = frame.segment:grid():get({ x = gridX, y = gridY })
+    if grid then
+        gridsAtCoord[key] = grid
+        return grid
+    end
+    return gridsAtCoord[key]
+end
+
+-- Where a character stands, in the durable form -- the grid id and the offset inside it -- or nil.
+local function placeOfPlayer(session)
+    session = session or hafen.session():current()
+    local playerGob = session and session:player() and session:player():gob()
+    local position = playerGob and playerGob:position()
+    return position and position:info() or nil
+end
+
+local function sessionsInWorld()
+    local inWorld = {}
+    for _, session in ipairs(hafen.session():list()) do
+        if session:exists() and session:character() then
+            inWorld[#inWorld + 1] = session
+        end
+    end
+    return inWorld
 end
 
 -- ---------------------------------------------------------------- the sweep, and forgetting a felled tree
 
-local misses = {}                                  -- "gridId|cell" -> sweeps in a row it was missing
+local missesByCell = {}               -- "gridId|x,y" -> sweeps in a row it was missing
 
-local function prune(s, seen)
-  local at = playerAt(s)
-  local home = at and gridLoc(at.gridId)
-  if not home then return end
-  local anchor = hafen.map():grid():get(at.gridId)
-  local seg = anchor and anchor:segment()
-  if not seg then return end
-
-  local pwx, pwy = home.sx * GRID + at.x, home.sy * GRID + at.y
-  for dx = -1, 1 do
-    for dy = -1, 1 do
-      local gr = seg:grid():get({ x = home.sx + dx, y = home.sy + dy })
-      local gid = gr and gr:id()
-      local cells = gid and db.entries[gid]
-      if cells then
-        local ox, oy = (home.sx + dx) * GRID, (home.sy + dy) * GRID
-        for cell in pairs(cells) do
-          local cx, cy = cell:match("^(-?%d+),(-?%d+)$")
-          if cx then
-            local wx, wy = ox + tonumber(cx), oy + tonumber(cy)
-            if ((wx - pwx) ^ 2 + (wy - pwy) ^ 2) <= (PRUNE_R * PRUNE_R) then
-              local k = gid .. "|" .. cell
-              if seen[k] then
-                misses[k] = nil
-              else
-                -- Standing right beside a place and not seeing what we wrote there, three sweeps running:
-                -- it was felled, mined or built over. Anything further off is simply not streamed in.
-                local n = (misses[k] or 0) + 1
-                if n >= PRUNE_MISS then
-                  misses[k] = nil
-                  forget(gid, cell)
-                else
-                  misses[k] = n
-                end
-              end
-            end
-          end
-        end
-      end
+-- One cell the character stands right beside. Seen this sweep, all is well; missed three sweeps running, it
+-- was felled, mined or built over, and the row goes. Anything further off is simply not streamed in.
+local function judgeCell(gridId, key, seenCells)
+    local seenKey = gridId .. "|" .. key
+    if seenCells[seenKey] then
+        missesByCell[seenKey] = nil
+        return
     end
-  end
+    local misses = (missesByCell[seenKey] or 0) + 1
+    if misses < PRUNE_MISSES then
+        missesByCell[seenKey] = misses
+        return
+    end
+    missesByCell[seenKey] = nil
+    forgetObject(gridId, key)
+end
+
+local function pruneAround(session, seenCells)
+    local playerPlace = placeOfPlayer(session)
+    local home = playerPlace and placeOfGrid(playerPlace.gridId)
+    if not home then
+        return
+    end
+    local homeGrid = hafen.map():grid():get(playerPlace.gridId)
+    local segment = homeGrid and homeGrid:segment()
+    if not segment then
+        return
+    end
+    local playerWorldX = home.gridX * GRID_SIZE + playerPlace.x
+    local playerWorldY = home.gridY * GRID_SIZE + playerPlace.y
+    -- the character's own grid and the eight around it: as far as PRUNE_RADIUS can reach
+    for gridX = home.gridX - 1, home.gridX + 1 do
+        for gridY = home.gridY - 1, home.gridY + 1 do
+            local grid = segment:grid():get({ x = gridX, y = gridY })
+            local gridId = grid and grid:id()
+            if gridId then
+                for key in pairs(cellsOfGrid(gridId)) do
+                    local cellX, cellY = cellCoords(key)
+                    local worldX = gridX * GRID_SIZE + cellX
+                    local worldY = gridY * GRID_SIZE + cellY
+                    local distanceSquared = (worldX - playerWorldX) ^ 2 + (worldY - playerWorldY) ^ 2
+                    if distanceSquared <= (PRUNE_RADIUS * PRUNE_RADIUS) then
+                        judgeCell(gridId, key, seenCells)
+                    end
+                end
+            end
+        end
+    end
 end
 
 local function sweep()
-  local seen = {}
-  for _, s in ipairs(hafen.session():list()) do
-    if s:exists() and s:character() then
-      local gobs = s:world():gob()
-      for _, k in ipairs(KINDS) do
-        for _, gob in ipairs(gobs:list(k.match)) do
-          local cell = remember(gob)
-          if cell then
-            local p = gob:position()
-            local at = p and p:info()
-            if at then seen[at.gridId .. "|" .. cell] = true end
-          end
+    local seenCells = {}
+    -- One transaction around the whole sweep: every row it writes is one commit rather than one each, and
+    -- nothing inside waits on anything but the file.
+    store:transaction(function()
+        for _, session in ipairs(sessionsInWorld()) do
+            local gobs = session:world():gob()
+            for _, kind in ipairs(KINDS) do
+                for _, gob in ipairs(gobs:list(kind.match)) do
+                    local gridId, key = rememberObject(gob)
+                    if gridId then
+                        seenCells[gridId .. "|" .. key] = true
+                    end
+                end
+            end
         end
-      end
-    end
-  end
-  for _, s in ipairs(hafen.session():list()) do
-    if s:exists() and s:character() then prune(s, seen) end
-  end
-  if unsaved and ((os.time() - lastFlush) >= FLUSH) then
-    hafen.store():flush()
-    lastFlush, unsaved = os.time(), false
-  end
+        for _, session in ipairs(sessionsInWorld()) do
+            pruneAround(session, seenCells)
+        end
+    end)
+    dropIdleCells()
 end
 
--- ---------------------------------------------------------------- the filter, the hits and the heatmap
+-- ---------------------------------------------------------------- the filter and the hits
 
-local enabled = {}
-for _, k in ipairs(KINDS) do enabled[k.key] = (ui[k.key] ~= false) end
-local query    = ui.query or ""
-local showHeat = (ui.heat ~= false)
+local enabledKinds = {}               -- kind key -> whether its checkbox is on
+for _, kind in ipairs(KINDS) do
+    enabledKinds[kind.key] = (settings[kind.key] ~= false)
+end
+local searchText = settings.query or ""
 
-local results, rowOf, chosen = {}, {}, nil
-local heat, heatMax, heatSeg, heatDiv = {}, 0, nil, 0
-local heatAt = 0                                   -- when it was last walked; 0 asks for it now
+local hits = {}                       -- what the list shows, nearest first
+local hitByRowText = {}               -- the list's row text -> its hit
+local pickedHit = nil                 -- the row that was picked, which outlives the list it came from
 
-local function wantedSet()
-  local q, w = query:lower(), {}
-  for i = 1, #db.kinds do
-    local c = kindClass[i]
-    w[i] = (c ~= nil) and enabled[c.key]
-      and ((q == "")
-        or (kindLabel[i]:lower():find(q, 1, true) ~= nil)
-        or (db.kinds[i]:lower():find(q, 1, true) ~= nil)
-        or (c.key:find(q, 1, true) ~= nil))
-  end
-  return w
+local function matchesSearch(speciesId, kind, needle)
+    if needle == "" then
+        return true
+    end
+    return (speciesLabel[speciesId]:lower():find(needle, 1, true) ~= nil)
+        or (speciesResource[speciesId]:lower():find(needle, 1, true) ~= nil)
+        or (kind.key:find(needle, 1, true) ~= nil)
 end
 
-local function research()
-  local w = wantedSet()
-  local at = playerAt()
-  local home = at and gridLoc(at.gridId)
-  local pwx = home and (home.sx * GRID + at.x) or 0
-  local pwy = home and (home.sy * GRID + at.y) or 0
-
-  local grids = {}
-  for gid, cells in pairs(db.entries) do
-    local any = false
-    for _, ki in pairs(cells) do
-      if w[ki] then any = true; break end
-    end
-    if any then
-      local l = gridLoc(gid)
-      if l then
-        local d = -1
-        if home and (l.seg == home.seg) then
-          local cx, cy = l.sx * GRID + GRID * 0.5, l.sy * GRID + GRID * 0.5
-          d = math.sqrt((cx - pwx) ^ 2 + (cy - pwy) ^ 2)
+-- What the filter wants, as the species it matches: the ids in a row, whether that is every species known
+-- (the usual case, which needs no clause at all), and a signature that says whether the grids read for an
+-- earlier filter still serve.
+local function wantedSpeciesIds()
+    local needle = searchText:lower()
+    local ids = {}
+    local allWanted = true
+    wantedSpecies = {}
+    for speciesId = 1, highestSpeciesId do
+        local kind = speciesResource[speciesId] and speciesKind[speciesId]
+        local wanted = (kind ~= nil) and enabledKinds[kind.key] and matchesSearch(speciesId, kind, needle)
+        wantedSpecies[speciesId] = wanted
+        if wanted then
+            ids[#ids + 1] = speciesId
+        else
+            allWanted = false
         end
-        grids[#grids + 1] = { id = gid, l = l, cells = cells, d = d }
-      end
     end
-  end
-  -- Grids first, hits second: there are hundreds of the one and tens of thousands of the other, so walking
-  -- the near grids until the list is full bounds the sort to about what the list can show.
-  table.sort(grids, function(a, b)
-    if (a.d < 0) ~= (b.d < 0) then return b.d < 0 end
-    return a.d < b.d
-  end)
-
-  local out = {}
-  for _, gh in ipairs(grids) do
-    for cell, ki in pairs(gh.cells) do
-      if w[ki] then
-        local cx, cy = cell:match("^(-?%d+),(-?%d+)$")
-        if cx then
-          cx, cy = tonumber(cx), tonumber(cy)
-          local d = -1
-          if home and (gh.l.seg == home.seg) then
-            d = math.sqrt((gh.l.sx * GRID + cx - pwx) ^ 2 + (gh.l.sy * GRID + cy - pwy) ^ 2)
-          end
-          out[#out + 1] = { gridId = gh.id, x = cx, y = cy, ki = ki, dist = d,
-                            seg = gh.l.seg, sx = gh.l.sx, sy = gh.l.sy }
-        end
-      end
-    end
-    if #out >= MAX_ROWS then break end
-  end
-  table.sort(out, function(a, b)
-    if (a.dist < 0) ~= (b.dist < 0) then return b.dist < 0 end
-    if a.dist ~= b.dist then return a.dist < b.dist end
-    if a.gridId ~= b.gridId then return a.gridId < b.gridId end
-    if a.x ~= b.x then return a.x < b.x end
-    return a.y < b.y
-  end)
-  while #out > MAX_ROWS do out[#out] = nil end
-  results = out
+    return ids, allWanted, table.concat(ids, ",")
 end
 
-local function reheat(segId, div)
-  heat, heatMax, heatSeg, heatDiv = {}, 0, segId, div
-  if not segId then return end
-  local w, step = wantedSet(), GRID / div
-  for gid, cells in pairs(db.entries) do
-    local l = gridLoc(gid)
-    if l and (l.seg == segId) then
-      local bx0, by0 = l.sx * div, l.sy * div
-      for cell, ki in pairs(cells) do
-        if w[ki] then
-          local cx, cy = cell:match("^(-?%d+),(-?%d+)$")
-          if cx then
-            local k = (bx0 + math.floor(tonumber(cx) / step)) .. "," ..
-                      (by0 + math.floor(tonumber(cy) / step))
-            local n = (heat[k] or 0) + 1
-            heat[k] = n
-            if n > heatMax then heatMax = n end
-          end
-        end
-      end
+local function placeholders(count)    -- "?,?,?": one for each value bound after the statement
+    local marks = {}
+    for index = 1, count do
+        marks[index] = "?"
     end
-  end
+    return table.concat(marks, ",")
+end
+
+-- The clause that keeps the wanted species, and the values it binds -- nothing at all when every species is
+-- wanted.
+local function speciesClause(ids, allWanted)
+    if allWanted then
+        return "", {}
+    end
+    return " AND kind IN (" .. placeholders(#ids) .. ")", ids
+end
+
+-- The grids holding anything the filter wants -- read once per filter, off the (kind, grid) index, and
+-- kept current by `rememberObject` from then on. Answers nil when the filter wants nothing at all.
+local function matchingGrids()
+    local ids, allWanted, signature = wantedSpeciesIds()
+    if #ids == 0 then
+        gridsWithMatches, gridsWithMatchesFor = nil, signature
+        return nil
+    end
+    if gridsWithMatches and (gridsWithMatchesFor == signature) then
+        return gridsWithMatches, ids, allWanted
+    end
+    local clause, values = speciesClause(ids, allWanted)
+    local grids = {}
+    for _, row in ipairs(store:query("SELECT DISTINCT grid FROM objects WHERE 1" .. clause, table.unpack(values))) do
+        grids[row.grid] = true
+    end
+    gridsWithMatches, gridsWithMatchesFor = grids, signature
+    return grids, ids, allWanted
+end
+
+-- A distance of -1 is "in another segment altogether": those sort last, after every measured one.
+local function nearerFirst(firstDistance, secondDistance)
+    if (firstDistance < 0) ~= (secondDistance < 0) then
+        return secondDistance < 0
+    end
+    return firstDistance < secondDistance
+end
+
+local function searchHits()
+    local grids, ids, allWanted = matchingGrids()
+    if not grids then
+        hits = {}
+        return
+    end
+    local playerPlace = placeOfPlayer()
+    local home = playerPlace and placeOfGrid(playerPlace.gridId)
+    local playerWorldX = home and (home.gridX * GRID_SIZE + playerPlace.x) or 0
+    local playerWorldY = home and (home.gridY * GRID_SIZE + playerPlace.y) or 0
+
+    local function distanceTo(segmentId, worldX, worldY)
+        if not (home and (segmentId == home.segmentId)) then
+            return -1
+        end
+        return math.sqrt((worldX - playerWorldX) ^ 2 + (worldY - playerWorldY) ^ 2)
+    end
+
+    local placedGrids = {}
+    for gridId in pairs(grids) do
+        local place = placeOfGrid(gridId)
+        if place then
+            local centerX = place.gridX * GRID_SIZE + GRID_SIZE * 0.5
+            local centerY = place.gridY * GRID_SIZE + GRID_SIZE * 0.5
+            placedGrids[#placedGrids + 1] = {
+                id = gridId,
+                place = place,
+                distance = distanceTo(place.segmentId, centerX, centerY),
+            }
+        end
+    end
+    -- Grids first, hits second: there are hundreds of the one and tens of thousands of the other, so the near
+    -- grids are read out of the file one at a time until the list is full, and the rest are never read.
+    table.sort(placedGrids, function(first, second)
+        return nearerFirst(first.distance, second.distance)
+    end)
+
+    local clause, values = speciesClause(ids, allWanted)
+    local found = {}
+    for _, grid in ipairs(placedGrids) do
+        for _, row in ipairs(objectsTable:list("WHERE grid = ?" .. clause, grid.id, table.unpack(values))) do
+            local worldX = grid.place.gridX * GRID_SIZE + row.x
+            local worldY = grid.place.gridY * GRID_SIZE + row.y
+            found[#found + 1] = {
+                gridId = grid.id,
+                x = row.x,
+                y = row.y,
+                speciesId = row.kind,
+                segmentId = grid.place.segmentId,
+                worldX = worldX,
+                worldY = worldY,
+                distance = distanceTo(grid.place.segmentId, worldX, worldY),
+            }
+        end
+        if #found >= MAX_ROWS then
+            break
+        end
+    end
+    table.sort(found, function(first, second)
+        if first.distance ~= second.distance then
+            return nearerFirst(first.distance, second.distance)
+        end
+        if first.gridId ~= second.gridId then
+            return first.gridId < second.gridId
+        end
+        if first.x ~= second.x then
+            return first.x < second.x
+        end
+        return first.y < second.y
+    end)
+    while #found > MAX_ROWS do
+        found[#found] = nil
+    end
+    hits = found
 end
 
 -- ---------------------------------------------------------------- the view
 
-local view = { gridId = ui.gridId, x = ui.x or (GRID * 0.5), y = ui.y or (GRID * 0.5),
-               level = math.min(2, math.max(0, ui.level or 0)) }
+-- Where the panel is pointed: a grid and an offset inside it -- the durable form, the one a merge never
+-- rewrites -- and the zoom level.
+local view = {
+    gridId = settings.gridId,
+    x = settings.x or (GRID_SIZE * 0.5),
+    y = settings.y or (GRID_SIZE * 0.5),
+    level = math.min(#GRIDS_PER_DRAWING - 1, math.max(0, settings.level or 0)),
+}
 
-local function look(gridId, x, y)
-  view.gridId, view.x, view.y = gridId, x, y
-  ui.gridId, ui.x, ui.y = gridId, x, y
+local function lookAt(gridId, x, y)
+    view.gridId, view.x, view.y = gridId, x, y
+    settings.gridId, settings.x, settings.y = gridId, x, y
 end
 
-local function lookHere()
-  local at = playerAt()
-  if not at then return false end
-  look(at.gridId, at.x, at.y)
-  return true
+local function lookAtPlayer()
+    local playerPlace = placeOfPlayer()
+    if not playerPlace then
+        return false
+    end
+    lookAt(playerPlace.gridId, playerPlace.x, playerPlace.y)
+    return true
 end
 
--- Everything the map draws and everything a click on it resolves is this one frame: the segment being
+-- Everything the map draws and everything a press on it resolves is this one frame: the segment being
 -- drawn, how many design pixels a world unit is worth, and where that segment's origin sits on the panel.
-local function frame(w, h)
-  local anchor = view.gridId and hafen.map():grid():get(view.gridId)
-  local sc  = anchor and anchor:segmentCoord()
-  local seg = anchor and anchor:segment()
-  if not (sc and seg) then return nil end
-  local z   = ZOOM[view.level + 1]
-  local ppu = 100 / (z.s * GRID)
-  return { seg = seg, id = seg:id(), s = z.s, div = z.div, ppu = ppu,
-           ox = w * 0.5 - (sc.x * GRID + view.x) * ppu,
-           oy = h * 0.5 - (sc.y * GRID + view.y) * ppu }
+-- The anchor's place is asked of the database every frame and remembered: on a frame the file is busy the
+-- last answer serves, so the picture holds still instead of going black for a beat.
+local lastAnchor = nil                -- { gridId, coord, segment, segmentId, at }: the last anchor resolved
+
+local function mapFrame(width, height)
+    local gridId = view.gridId
+    if not gridId then
+        return nil
+    end
+    local grid = hafen.map():grid():get(gridId)
+    local coord = grid and grid:segmentCoord()
+    local segment = grid and grid:segment()
+    local now = os.time()
+    if coord and segment then
+        lastAnchor = { gridId = gridId, coord = coord, segment = segment, segmentId = segment:id(), at = now }
+    elseif lastAnchor and (lastAnchor.gridId == gridId) and ((now - lastAnchor.at) <= PLACE_TRUST_SECONDS) then
+        coord, segment = lastAnchor.coord, lastAnchor.segment   -- busy this frame: what it answered last
+    else
+        return nil
+    end
+    local gridsPerDrawing = GRIDS_PER_DRAWING[view.level + 1]
+    local pixelsPerUnit = DRAWING_SIZE / (gridsPerDrawing * GRID_SIZE)
+    local centerX = coord.x * GRID_SIZE + view.x   -- the place under the crosshair, in the segment's world units
+    local centerY = coord.y * GRID_SIZE + view.y
+    return {
+        segment = segment,
+        segmentId = lastAnchor.segmentId,
+        gridsPerDrawing = gridsPerDrawing,
+        pixelsPerUnit = pixelsPerUnit,
+        centerX = centerX,
+        centerY = centerY,
+        originX = width * 0.5 - centerX * pixelsPerUnit,   -- where the segment's origin sits on the panel
+        originY = height * 0.5 - centerY * pixelsPerUnit,
+        anchorGridId = gridId,
+        anchorGridX = coord.x,
+        anchorGridY = coord.y,
+    }
+end
+
+-- A place in the segment's world units, as the whole panel pixel it is drawn at -- and back again.
+local function worldToPanel(frame, worldX, worldY)
+    return math.floor(frame.originX + worldX * frame.pixelsPerUnit),
+           math.floor(frame.originY + worldY * frame.pixelsPerUnit)
+end
+
+local function panelToWorld(frame, panelX, panelY)
+    return (panelX - frame.originX) / frame.pixelsPerUnit,
+           (panelY - frame.originY) / frame.pixelsPerUnit
+end
+
+-- Point the panel at a place given in the segment's world units. The view is anchored on the grid standing
+-- there when the database has one, and stays on the frame's own anchor otherwise: ground never explored has
+-- no grid to anchor on, and an offset past the anchor's edge points the panel just as well.
+local function lookAtWorld(frame, worldX, worldY)
+    local gridX, gridY = math.floor(worldX / GRID_SIZE), math.floor(worldY / GRID_SIZE)
+    local grid = gridAtCoord(frame, gridX, gridY)
+    if grid then
+        lookAt(grid:id(), worldX - gridX * GRID_SIZE, worldY - gridY * GRID_SIZE)
+    else
+        lookAt(frame.anchorGridId, worldX - frame.anchorGridX * GRID_SIZE, worldY - frame.anchorGridY * GRID_SIZE)
+    end
 end
 
 -- Above level 0 one drawing covers a block of grids and every grid in it hands back that same picture, so
 -- the block is asked for by its corners: the origin grid alone may be one the database never recorded.
-local function blockGrid(seg, bx, by, s)
-  local x, y, last = bx * s, by * s, s - 1
-  local gr = seg:grid():get({ x = x, y = y })
-  if gr or (s == 1) then return gr end
-  return seg:grid():get({ x = x + last, y = y })
-      or seg:grid():get({ x = x, y = y + last })
-      or seg:grid():get({ x = x + last, y = y + last })
+local function gridOfDrawing(frame, drawingX, drawingY)
+    local span = frame.gridsPerDrawing
+    local gridX, gridY = drawingX * span, drawingY * span
+    local grid = gridAtCoord(frame, gridX, gridY)
+    if grid or (span == 1) then
+        return grid
+    end
+    local last = span - 1
+    return gridAtCoord(frame, gridX + last, gridY)
+        or gridAtCoord(frame, gridX, gridY + last)
+        or gridAtCoord(frame, gridX + last, gridY + last)
 end
 
-local RAMP = { {  40,  90, 210,  70 },             -- thin blue: one or two
-               {  60, 190, 140, 110 },             -- green
-               { 240, 210,  70, 155 },             -- yellow
-               { 235,  70,  55, 200 } }            -- red: as thick as this cache gets
-
-local function ramp(t)
-  if t < 0 then t = 0 elseif t > 1 then t = 1 end
-  local f = t * (#RAMP - 1)
-  local i = math.floor(f)
-  if i > (#RAMP - 2) then i = #RAMP - 2 end
-  local k, a, b = f - i, RAMP[i + 1], RAMP[i + 2]
-  return math.floor(a[1] + (b[1] - a[1]) * k), math.floor(a[2] + (b[2] - a[2]) * k),
-         math.floor(a[3] + (b[3] - a[3]) * k), math.floor(a[4] + (b[4] - a[4]) * k)
-end
+-- The drawings, by grid and level, as they were last handed out: a nil is a render still on its way OR a
+-- file busy this frame, and in the second case the picture drawn a frame ago is the one to draw again. A
+-- handle the client has since disposed draws nothing, and the next ask renders it anew.
+local drawings = {}
 
 -- ---------------------------------------------------------------- the window
 
-local win, entry, list, status, mapw
-local checks = {}
+local window, searchEntry, hitList, statusLabel, mapPanel
 
-local function distText(r)
-  if r.dist < 0 then return "far" end
-  return math.floor(r.dist / TILE + 0.5) .. "t"
+local function distanceText(hit)
+    if hit.distance < 0 then
+        return "far"
+    end
+    return math.floor(hit.distance / TILE_SIZE + 0.5) .. "t"
 end
 
-local function applyRows()
-  local rows = {}
-  rowOf = {}
-  for i, r in ipairs(results) do
-    local t = i .. ". " .. kindLabel[r.ki] .. "   " .. distText(r)
-    rows[i] = t                                    -- the index keeps every row string its own value
-    rowOf[t] = r
-  end
-  list:rows(rows)                                  -- this clears the selection, which `chosen` outlives
+local function fillList()
+    local rows = {}
+    hitByRowText = {}
+    for index, hit in ipairs(hits) do
+        local text = index .. ". " .. speciesLabel[hit.speciesId] .. "   " .. distanceText(hit)
+        rows[index] = text            -- the index keeps every row string its own value
+        hitByRowText[text] = hit
+    end
+    hitList:rows(rows)                -- this clears the selection, which `pickedHit` outlives
 end
 
-local refreshedAt, refreshedNear = 0, nil
+local listFilledAt = 0
+local listFilledNear = nil            -- where the character stood when the list was last ranked
 
-local function refresh()
-  research()
-  applyRows()
-  refreshedAt, refreshedNear = os.time(), playerAt()
+local function refreshList()
+    searchHits()
+    fillList()
+    listFilledAt, listFilledNear = os.time(), placeOfPlayer()
 end
 
-local function selectRow(r)
-  for text, row in pairs(rowOf) do
-    if row == r then list:value(text); return end
-  end
+local function selectHitRow(hit)
+    for text, rowHit in pairs(hitByRowText) do
+        if rowHit == hit then
+            hitList:value(text)
+            return
+        end
+    end
+end
+
+local function pickHit(hit)
+    pickedHit = hit
+    lookAt(hit.gridId, hit.x, hit.y)
 end
 
 local function statusText()
-  local parts = {}
-  for _, k in ipairs(KINDS) do
-    parts[#parts + 1] = (counts[k.key] or 0) .. " " .. k.key .. "s"
-  end
-  local t = ZOOM[view.level + 1].s * GRID / 100 / TILE
-  return total .. " cached (" .. table.concat(parts, ", ") .. ")   "
-      .. #results .. " shown   zoom " .. view.level
-      .. " (1 px = " .. t .. ((t == 1) and " tile)" or " tiles)")
+    -- a drawing is 100 px across and a grid is 100 tiles, so a pixel is as many tiles as a drawing has grids
+    local tilesPerPixel = GRIDS_PER_DRAWING[view.level + 1] * GRID_SIZE / DRAWING_SIZE / TILE_SIZE
+    return totalObjects .. " cached (" .. countsText() .. ")   "
+        .. #hits .. " shown   zoom " .. view.level
+        .. " (1 px = " .. tilesPerPixel .. ((tilesPerPixel == 1) and " tile)" or " tiles)")
 end
 
-local function drawMap(ev)
-  local g, w, h = ev:g(), ev:w(), ev:h()
-  g:color(16, 18, 20)
-  g:frect(0, 0, w, h)
-
-  local f = frame(w, h)
-  if not f then
-    g:color(170, 175, 180)
-    g:text(view.gridId and "this ground has not been written down yet"
-                        or "nothing to look at yet -- press Here", 8, 8)
-    g:color()
-    return
-  end
-
-  -- WHITE FIRST. An image is drawn THROUGH the draw colour -- Tex.crender multiplies by it -- so the plate
-  -- colour above would tint the whole map down to near-black. The map's own colours are the point of it.
-  g:color()
-
-  -- the recorded ground: the client's own minimap art, one blit per drawing
-  for bx = math.floor(-f.ox / 100), math.floor((w - f.ox) / 100) do
-    for by = math.floor(-f.oy / 100), math.floor((h - f.oy) / 100) do
-      local gr  = blockGrid(f.seg, bx, by, f.s)
-      local img = gr and gr:image(view.level)      -- nil while it renders; the next frame has it
-      if img then g:image(img, math.floor(f.ox + bx * 100), math.floor(f.oy + by * 100)) end
-    end
-  end
-
-  -- the heatmap of everything the filter matches, at a cell of 25 design px whatever the zoom
-  if showHeat and (heatSeg == f.id) and (heatMax > 0) then
-    local cell = 100 / (f.s * heatDiv)
-    for bx = math.floor(-f.ox / cell), math.floor((w - f.ox) / cell) do
-      for by = math.floor(-f.oy / cell), math.floor((h - f.oy) / cell) do
-        local n = heat[bx .. "," .. by]
-        if n then
-          local r, gg, b, a = ramp(math.sqrt(n / heatMax))
-          g:color(r, gg, b, a)
-          g:frect(math.floor(f.ox + bx * cell), math.floor(f.oy + by * cell),
-                  math.ceil(cell), math.ceil(cell))
+-- the recorded ground: the client's own minimap art, one blit per drawing
+local function drawGround(graphics, frame, width, height)
+    local firstX, lastX = math.floor(-frame.originX / DRAWING_SIZE), math.floor((width - frame.originX) / DRAWING_SIZE)
+    local firstY, lastY = math.floor(-frame.originY / DRAWING_SIZE), math.floor((height - frame.originY) / DRAWING_SIZE)
+    for drawingX = firstX, lastX do
+        for drawingY = firstY, lastY do
+            local grid = gridOfDrawing(frame, drawingX, drawingY)
+            if grid then
+                local key = grid:id() .. "@" .. view.level
+                local image = grid:image(view.level)   -- nil while it renders, or while the file is busy
+                if image then
+                    drawings[key] = image
+                else
+                    image = drawings[key]
+                end
+                if image then
+                    graphics:image(image, math.floor(frame.originX + drawingX * DRAWING_SIZE),
+                                          math.floor(frame.originY + drawingY * DRAWING_SIZE))
+                end
+            end
         end
-      end
     end
-  end
+end
 
-  -- the hits the list is showing, each drawn as the client's own minimap icon for the thing
-  for _, r in ipairs(results) do
-    if r.seg == f.id then
-      local x = math.floor(f.ox + (r.sx * GRID + r.x) * f.ppu)
-      local y = math.floor(f.oy + (r.sy * GRID + r.y) * f.ppu)
-      if (x > -ICON) and (x < w + ICON) and (y > -ICON) and (y < h + ICON) then
-        local res = iconRes[r.ki]
-        if res then
-          g:color()                                -- untinted: the icon is the client's art, not ours to dye
-          g:resource(res, x - HALF, y - HALF, ICON, ICON)
-        else
-          local c = kindClass[r.ki]                -- nothing the game draws an icon for: a pip in its colour
-          g:color(0, 0, 0, 210)
-          g:poly(x, y - 4, x + 4, y, x, y + 4, x - 4, y)
-          g:color(c.color[1], c.color[2], c.color[3])
-          g:poly(x, y - 2, x + 2, y, x, y + 2, x - 2, y)
+-- the hits the list is showing, each drawn as the client's own minimap icon for the thing
+local function drawMarks(graphics, frame, width, height)
+    for _, hit in ipairs(hits) do
+        if hit.segmentId == frame.segmentId then
+            local panelX, panelY = worldToPanel(frame, hit.worldX, hit.worldY)
+            local onPanel = (panelX > -ICON_SIZE) and (panelX < width + ICON_SIZE)
+                and (panelY > -ICON_SIZE) and (panelY < height + ICON_SIZE)
+            if onPanel then
+                local iconResource = iconResourceOfSpecies[hit.speciesId]
+                if iconResource then
+                    graphics:color()  -- untinted: the icon is the client's art, not ours to dye
+                    graphics:resource(iconResource, panelX - ICON_HALF, panelY - ICON_HALF, ICON_SIZE, ICON_SIZE)
+                else
+                    -- nothing the game draws an icon for: a pip in its kind's colour
+                    local color = speciesKind[hit.speciesId].color
+                    graphics:color(0, 0, 0, 210)
+                    graphics:poly(panelX, panelY - 4, panelX + 4, panelY, panelX, panelY + 4, panelX - 4, panelY)
+                    graphics:color(color[1], color[2], color[3])
+                    graphics:poly(panelX, panelY - 2, panelX + 2, panelY, panelX, panelY + 2, panelX - 2, panelY)
+                end
+            end
         end
-      end
     end
-  end
-
-  -- the one that was picked, named where it stands
-  if chosen and (chosen.seg == f.id) then
-    local x = math.floor(f.ox + (chosen.sx * GRID + chosen.x) * f.ppu)
-    local y = math.floor(f.oy + (chosen.sy * GRID + chosen.y) * f.ppu)
-    g:color(255, 240, 120)
-    g:rect(x - HALF - 2, y - HALF - 2, ICON + 4, ICON + 4)
-    g:text(kindLabel[chosen.ki], x + HALF + 3, y - 7, { color = { 255, 240, 120 } })
-  end
-
-  -- the character on screen
-  local at = playerAt()
-  local pl = at and gridLoc(at.gridId)
-  if pl and (pl.seg == f.id) then
-    local x = math.floor(f.ox + (pl.sx * GRID + at.x) * f.ppu)
-    local y = math.floor(f.oy + (pl.sy * GRID + at.y) * f.ppu)
-    g:color(0, 0, 0, 220)
-    g:frect(x - 3, y - 3, 7, 7)
-    g:color(255, 255, 255)
-    g:frect(x - 2, y - 2, 5, 5)
-  end
-
-  -- where the panel is pointed, and the edge of it
-  g:color(255, 255, 255, 70)
-  g:line(w * 0.5 - 7, h * 0.5, w * 0.5 + 7, h * 0.5, 1)
-  g:line(w * 0.5, h * 0.5 - 7, w * 0.5, h * 0.5 + 7, 1)
-  g:color(74, 84, 74)
-  g:rect(0, 0, w, h)
-  g:color()
 end
 
-local function pick(r)
-  if not r then return end
-  chosen = { gridId = r.gridId, x = r.x, y = r.y, ki = r.ki, seg = r.seg, sx = r.sx, sy = r.sy }
-  look(r.gridId, r.x, r.y)
+-- the one that was picked, named where it stands
+local function drawPickedHit(graphics, frame)
+    if not (pickedHit and (pickedHit.segmentId == frame.segmentId)) then
+        return
+    end
+    local panelX, panelY = worldToPanel(frame, pickedHit.worldX, pickedHit.worldY)
+    graphics:color(255, 240, 120)
+    graphics:rect(panelX - ICON_HALF - 2, panelY - ICON_HALF - 2, ICON_SIZE + 4, ICON_SIZE + 4)
+    graphics:text(speciesLabel[pickedHit.speciesId], panelX + ICON_HALF + 3, panelY - 7, { color = { 255, 240, 120 } })
 end
 
-local function mapPressed(ev)
-  local f = frame(MAPW, MAPH)
-  if not f then ev:preventDefault(); return end
-
-  -- a hit under the pointer is a pick; anywhere else is a place to look at
-  local best, bestd
-  for _, r in ipairs(results) do
-    if r.seg == f.id then
-      local dx = (f.ox + (r.sx * GRID + r.x) * f.ppu) - ev:x()
-      local dy = (f.oy + (r.sy * GRID + r.y) * f.ppu) - ev:y()
-      local d  = dx * dx + dy * dy
-      if (d <= 64) and ((not bestd) or (d < bestd)) then best, bestd = r, d end
+-- the character on screen
+local function drawPlayer(graphics, frame)
+    local playerPlace = placeOfPlayer()
+    local home = playerPlace and placeOfGrid(playerPlace.gridId)
+    if not (home and (home.segmentId == frame.segmentId)) then
+        return
     end
-  end
-  if best then
-    pick(best)
-    selectRow(best)
-  else
+    local panelX, panelY = worldToPanel(frame, home.gridX * GRID_SIZE + playerPlace.x,
+                                               home.gridY * GRID_SIZE + playerPlace.y)
+    graphics:color(0, 0, 0, 220)
+    graphics:frect(panelX - 3, panelY - 3, 7, 7)
+    graphics:color(255, 255, 255)
+    graphics:frect(panelX - 2, panelY - 2, 5, 5)
+end
+
+local function drawMap(event)
+    local graphics, width, height = event:g(), event:w(), event:h()
+    graphics:color(16, 18, 20)
+    graphics:frect(0, 0, width, height)
+
+    local frame = mapFrame(width, height)
+    if not frame then
+        graphics:color(170, 175, 180)
+        graphics:text(view.gridId and "this ground has not been written down yet"
+                                   or "nothing to look at yet -- press Here", 8, 8)
+        graphics:color()
+        return
+    end
+
+    -- WHITE FIRST. An image is drawn THROUGH the draw colour -- Tex.crender multiplies by it -- so the plate
+    -- colour above would tint the whole map down to near-black. The map's own colours are the point of it.
+    graphics:color()
+    drawGround(graphics, frame, width, height)
+    drawMarks(graphics, frame, width, height)
+    drawPickedHit(graphics, frame)
+    drawPlayer(graphics, frame)
+
+    -- where the panel is pointed, and the edge of it
+    graphics:color(255, 255, 255, 70)
+    graphics:line(width * 0.5 - 7, height * 0.5, width * 0.5 + 7, height * 0.5, 1)
+    graphics:line(width * 0.5, height * 0.5 - 7, width * 0.5, height * 0.5 + 7, 1)
+    graphics:color(74, 84, 74)
+    graphics:rect(0, 0, width, height)
+    graphics:color()
+end
+
+-- ---------------------------------------------------------------- pressing the map, and dragging it
+--
+-- A press on the map is one of two gestures, and which one is only known when the button comes up: a
+-- pointer that stayed put was a CLICK -- the mark under it is picked, or empty ground is looked at -- and
+-- one that moved was a DRAG, and the ground followed it the whole way. The pointer is taken with a grab for
+-- the length of the press, since a release outside the panel would never reach the panel on its own.
+
+-- The nearest mark within reach of a panel pixel, or nil.
+local function hitUnder(frame, panelX, panelY)
+    local nearest, nearestDistance = nil, nil
+    for _, hit in ipairs(hits) do
+        if hit.segmentId == frame.segmentId then
+            local markX, markY = worldToPanel(frame, hit.worldX, hit.worldY)
+            local distance = (markX - panelX) ^ 2 + (markY - panelY) ^ 2
+            if (distance <= PICK_RADIUS * PICK_RADIUS) and ((nearestDistance == nil) or (distance < nearestDistance)) then
+                nearest, nearestDistance = hit, distance
+            end
+        end
+    end
+    return nearest
+end
+
+local function clickMap(frame, panelX, panelY)
+    local hit = hitUnder(frame, panelX, panelY)
+    if hit then
+        pickHit(hit)
+        selectHitRow(hit)
+        return
+    end
     -- empty ground: look there, and let the pick go, which is also how the list starts re-ranking again
-    local wx = (ev:x() - f.ox) / f.ppu
-    local wy = (ev:y() - f.oy) / f.ppu
-    local gx, gy = math.floor(wx / GRID), math.floor(wy / GRID)
-    local gr = f.seg:grid():get({ x = gx, y = gy })
-    if gr then look(gr:id(), wx - gx * GRID, wy - gy * GRID) end
-    chosen = nil
-  end
-  ev:preventDefault()
+    lookAtWorld(frame, panelToWorld(frame, panelX, panelY))
+    pickedHit = nil
 end
 
--- The 3D view is aimed from the step: a button's own handler holds the addon layer's tree, and the map view
--- it would be moving stands in the character's.
-local function focusWorld()
-  local target = chosen
-  if not target then hafen.log():write(NAME .. ": pick a row first"); return end
-  hafen.timer():after(0, function()
-    local s = hafen.session():current()
-    if not s then hafen.log():write(NAME .. ": no character on screen"); return end
-    local p = s:world():position({ gridId = target.gridId, x = target.x, y = target.y })
-    if not (p and p:x()) then
-      hafen.log():write(NAME .. ": that place is not in this character's part of the world")
-      return
+local function dragMap(press, pointerX, pointerY)
+    local movedX, movedY = pointerX - press.pointerX, pointerY - press.pointerY
+    if not press.dragging then
+        if (movedX * movedX + movedY * movedY) < (DRAG_THRESHOLD * DRAG_THRESHOLD) then
+            return
+        end
+        press.dragging = true
     end
-    local ok, err = pcall(function() s:world():focus(p) end)
-    if not ok then
-      hafen.log():write(NAME .. ": the 3D view only aims under the rts camera -- " .. tostring(err))
+    -- the ground follows the pointer: what was under the crosshair when the button went down moves with it
+    local frame = press.frame
+    lookAtWorld(frame, frame.centerX - movedX / frame.pixelsPerUnit, frame.centerY - movedY / frame.pixelsPerUnit)
+end
+
+local function mapPressed(event)
+    event:preventDefault()            -- ours: a press that falls through would drag the window instead
+    local frame = mapFrame(MAP_WIDTH, MAP_HEIGHT)
+    if not frame then
+        return
     end
-  end)
+    local pointer = hafen.ui():mouse()
+    local press = {
+        frame = frame,                                    -- the map as it stood when the button went down
+        panelX = event:x(), panelY = event:y(),           -- on the panel: where a click lands
+        pointerX = pointer:x(), pointerY = pointer:y(),   -- on the screen: the space the grab reports in
+        dragging = false,
+    }
+    local grab = pointer:grab()
+    grab:on("Move", function(move)
+        dragMap(press, move:x(), move:y())
+    end)
+    grab:on("Up", function()
+        if not press.dragging then
+            clickMap(press.frame, press.panelX, press.panelY)
+        end
+    end)
 end
 
 local function build()
-  if win then return end
-  local W = LISTW + 6 + MAPW
-  local H = 26 + MAPH + 20
-
-  win = hafen.ui():window():title(NAME):size(W, H):position(120, 80)
-  win:remember("window")
-
-  entry = hafen.ui():entry():parent(win):position(0, 0):size(LISTW):value(query)
-  entry:tooltip("part of a species or a kind: fir, boulder, gneiss")
-
-  local x = LISTW + 8
-  for _, k in ipairs(KINDS) do
-    local c = hafen.ui():check():parent(win):position(x, 2):size(76):text(k.label):value(enabled[k.key])
-    checks[k.key] = c
-    c:on("Changed", function(on)
-      enabled[k.key] = on
-      ui[k.key] = on
-      chosen, dirty, heatAt = nil, true, 0   -- another set of hits: the old pick is not in it
-      refresh()
-    end)
-    x = x + 80
-  end
-
-  local heatBox = hafen.ui():check():parent(win):position(x, 2):size(76):text("Heat"):value(showHeat)
-  heatBox:tooltip("lay a heatmap of the matching objects over the map")
-  heatBox:on("Changed", function(on)
-    showHeat = on
-    ui.heat = on
-    dirty, heatAt = true, 0                  -- switched back on, the picture is rebuilt before it is shown
-  end)
-
-  local here = hafen.ui():button():parent(win):position(W - 176, 0):size(84):text("Here")
-  here:tooltip("look at the character on screen")
-  local aim = hafen.ui():button():parent(win):position(W - 86, 0):size(86):text("View")
-  aim:tooltip("aim the 3D view at the picked row (rts camera)")
-
-  list = hafen.ui():listbox():parent(win):position(0, 26):size(LISTW, MAPH):rowHeight(16)
-  mapw = hafen.ui():widget():parent(win):position(LISTW + 6, 26):size(MAPW, MAPH):name("map")
-  status = hafen.ui():label():parent(win):position(0, 26 + MAPH + 4):text("")
-
-  entry:on("Changed", function(text)
-    query = text
-    ui.query = text
-    chosen, dirty, heatAt = nil, true, 0   -- a new search: the map keeps its place, the pick does not
-    refresh()
-  end)
-  entry:on("Submitted", function()
-    if results[1] then
-      pick(results[1])
-      selectRow(results[1])
+    if window then
+        return
     end
-  end)
-  list:on("Changed", function(row) pick(rowOf[row]) end)
-  here:on("Pressed", function()
-    if not lookHere() then hafen.log():write(NAME .. ": no character on screen") end
-  end)
-  aim:on("Pressed", focusWorld)
-  mapw:on("Draw", drawMap)
-  mapw:on("MouseDown", mapPressed)
-  mapw:on("Wheel", function(ev)
-    local step = (ev:amount() > 0) and 1 or -1
-    view.level = math.max(0, math.min(#ZOOM - 1, view.level + step))
-    ui.level = view.level
-    ev:preventDefault()
-  end)
-  win:on("Close", function()
-    win:visible(false)
-    ui.open = false
-  end)
+    local windowWidth = LIST_WIDTH + GAP + MAP_WIDTH
+    local windowHeight = TOOLBAR_HEIGHT + MAP_HEIGHT + STATUS_HEIGHT
+
+    window = hafen.ui():window():title(NAME):size(windowWidth, windowHeight):position(120, 80)
+    window:remember("window")
+
+    searchEntry = hafen.ui():entry():parent(window):position(0, 0):size(LIST_WIDTH):value(searchText)
+    searchEntry:tooltip("part of a species or a kind: fir, boulder, gneiss")
+
+    local checkX = LIST_WIDTH + 8
+    for _, kind in ipairs(KINDS) do
+        local check = hafen.ui():check():parent(window):position(checkX, 2):size(CHECK_WIDTH)
+            :text(kind.label):value(enabledKinds[kind.key])
+        check:on("Changed", function(on)
+            enabledKinds[kind.key] = on
+            settings[kind.key] = on
+            pickedHit = nil           -- another set of hits: the old pick is not in it
+            refreshList()
+        end)
+        checkX = checkX + CHECK_WIDTH + 4
+    end
+
+    local hereButton = hafen.ui():button():parent(window):position(windowWidth - BUTTON_WIDTH, 0):size(BUTTON_WIDTH):text("Here")
+    hereButton:tooltip("look at the character on screen")
+    hereButton:on("Pressed", function()
+        if not lookAtPlayer() then
+            hafen.log():write(NAME .. ": no character on screen")
+        end
+    end)
+
+    hitList = hafen.ui():listbox():parent(window):position(0, TOOLBAR_HEIGHT):size(LIST_WIDTH, MAP_HEIGHT):rowHeight(16)
+    mapPanel = hafen.ui():widget():parent(window):position(LIST_WIDTH + GAP, TOOLBAR_HEIGHT):size(MAP_WIDTH, MAP_HEIGHT):name("map")
+    statusLabel = hafen.ui():label():parent(window):position(0, TOOLBAR_HEIGHT + MAP_HEIGHT + 4):text("")
+
+    searchEntry:on("Changed", function(text)
+        searchText = text
+        settings.query = text
+        pickedHit = nil               -- a new search: the map keeps its place, the pick does not
+        refreshList()
+    end)
+    searchEntry:on("Submitted", function()
+        if hits[1] then
+            pickHit(hits[1])
+            selectHitRow(hits[1])
+        end
+    end)
+    hitList:on("Changed", function(rowText)
+        local hit = hitByRowText[rowText]
+        if hit then
+            pickHit(hit)
+        end
+    end)
+    mapPanel:on("Draw", drawMap)
+    mapPanel:on("MouseDown", mapPressed)
+    mapPanel:on("Wheel", function(event)
+        local step = (event:amount() > 0) and 1 or -1
+        view.level = math.max(0, math.min(#GRIDS_PER_DRAWING - 1, view.level + step))
+        settings.level = view.level
+        event:preventDefault()
+    end)
+    window:on("Close", function()
+        window:visible(false)
+        settings.open = false
+    end)
 end
 
-local function show(on)
-  build()
-  win:visible(on)
-  ui.open = on
-  if on then
-    if not view.gridId then lookHere() end
-    refresh()
-  end
+local function showWindow(on)
+    build()
+    window:visible(on)
+    settings.open = on
+    if on then
+        if not view.gridId then
+            lookAtPlayer()
+        end
+        refreshList()
+    end
+end
+
+local function toggleWindow()
+    showWindow(not (window and window:visible()))
 end
 
 -- ---------------------------------------------------------------- the beat
 
 local statusShown = nil
 
-local function moved(a, b)
-  if not b then return true end
-  if a.gridId ~= b.gridId then return true end
-  return ((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2) > (MOVED * MOVED)
+local function walkedFar(place, since)
+    if not since then
+        return true
+    end
+    if place.gridId ~= since.gridId then
+        return true
+    end
+    return ((place.x - since.x) ^ 2 + (place.y - since.y) ^ 2) > (WALKED_FAR * WALKED_FAR)
 end
 
 local function tick()
-  if not (win and win:visible()) then return end
-  if not view.gridId then lookHere() end           -- left open across a relog: find the character again
+    if not (window and window:visible()) then
+        return
+    end
+    if not view.gridId then
+        lookAtPlayer()                -- left open across a relog: find the character again
+    end
 
-  local f = frame(MAPW, MAPH)
-  local segId = f and f.id or nil
-  local div   = f and f.div or 0
-  local now   = os.time()
+    local now = os.time()
+    if (now - iconsResolvedAt) > ICONS_REFRESH_SECONDS then
+        resolveIcons()                -- the registry grows; a species with no icon yet re-asks
+    end
 
-  -- The heatmap walks the whole cache, so it is rebuilt on a beat of its own rather than once per object
-  -- the sweep writes down: a walk through a forest sets `dirty` every few seconds, for hours. A zoom or a
-  -- step into another segment is not on that beat -- the picture would be wrong, not merely late.
-  if showHeat and ((segId ~= heatSeg) or (div ~= heatDiv) or (dirty and ((now - heatAt) >= SETTLE))) then
-    reheat(segId, div)                             -- off the draw pass, which must only draw
-    heatAt, dirty = now, false
-  end
-  if (now - iconAt) > LOC_TTL then refreshIcons() end   -- the registry grows; a kind with no icon yet re-asks
+    -- Distances go stale as you walk. Re-ranking under a selection would take the row out from under the
+    -- pointer, and rewriting the rows while nobody has moved would fight the scrollbar -- so the list is
+    -- re-read only when nothing is picked and the character has walked far enough for the order to matter.
+    if (not pickedHit) and ((now - listFilledAt) >= SETTLE_SECONDS) then
+        local playerPlace = placeOfPlayer()
+        if playerPlace and walkedFar(playerPlace, listFilledNear) then
+            refreshList()
+        end
+    end
 
-  -- Distances go stale as you walk. Re-ranking under a selection would take the row out from under the
-  -- pointer, and rewriting the rows while nobody has moved would fight the scrollbar -- so the list is
-  -- re-read only when nothing is picked and the character has walked far enough for the order to matter.
-  if (not chosen) and ((now - refreshedAt) >= SETTLE) then
-    local at = playerAt()
-    if at and moved(at, refreshedNear) then refresh() end
-  end
-
-  local text = statusText()
-  if text ~= statusShown then
-    status:text(text)                              -- a write resizes the label, so only a change is written
-    statusShown = text
-  end
+    local text = statusText()
+    if text ~= statusShown then
+        statusLabel:text(text)        -- a write resizes the label, so only a change is written
+        statusShown = text
+    end
 end
 
 hafen.event():on("Load", function()
-  build()
-  win:visible(ui.open == true)
-  if ui.open then refresh() end
-  hafen.log():write(NAME .. ": " .. total .. " object(s) cached -- ':gobcache' opens it")
+    build()
+    window:visible(settings.open == true)
+    if settings.open then
+        refreshList()
+    end
+    hafen.log():write(NAME .. ": " .. totalObjects .. " object(s) cached -- ':gobcache' opens it")
 end)
 
-hafen.event():on("Disable", function()
-  if unsaved then pcall(function() hafen.store():flush() end) end
-end)
-
-hafen.timer():every(SWEEP, sweep)
+hafen.timer():every(SWEEP_SECONDS, sweep)
 hafen.timer():every(0.5, tick)
 
 hafen.client():options():keybindings():on("toggle", function()
-  hafen.timer():after(0, function() show(not (win and win:visible())) end)
+    hafen.timer():after(0, toggleWindow)
 end)
 
+-- ---------------------------------------------------------------- the console
+
+local function writeStats()
+    local gridCount = store:query("SELECT count(DISTINCT grid) AS n FROM objects")[1].n
+    hafen.log():write(NAME .. ": " .. totalObjects .. " object(s) (" .. countsText() .. ") over "
+        .. gridCount .. " grid(s), " .. speciesCount .. " resource(s) known")
+end
+
+local function clearCache()
+    store:transaction(function()
+        store:exec("DELETE FROM objects")
+        store:exec("DELETE FROM kinds")
+    end)
+    speciesResource, speciesIconName, speciesKind, speciesLabel, speciesIdByResource = {}, {}, {}, {}, {}
+    highestSpeciesId, speciesCount = 0, 0
+    cellsByGrid, missesByCell = {}, {}
+    gridsWithMatches, gridsWithMatchesFor = nil, nil
+    iconResourceOfSpecies, iconsResolvedAt, iconAsksOfSpecies = {}, 0, {}
+    recount()
+    pickedHit = nil
+    build()
+    refreshList()
+end
+
 hafen.console():on("gobcache", function(args)
-  local what = args[1]
-  -- A console line holds the character's own tree, and everything below touches ours.
-  hafen.timer():after(0, function()
-    if what == "stats" then
-      local parts = {}
-      for _, k in ipairs(KINDS) do parts[#parts + 1] = (counts[k.key] or 0) .. " " .. k.key .. "s" end
-      local grids = 0
-      for _ in pairs(db.entries) do grids = grids + 1 end
-      hafen.log():write(NAME .. ": " .. total .. " object(s) (" .. table.concat(parts, ", ")
-                        .. ") over " .. grids .. " grid(s), " .. #db.kinds .. " resource(s) known")
-    elseif what == "scan" then
-      sweep()
-      hafen.log():write(NAME .. ": swept -- " .. total .. " object(s) cached")
-    elseif what == "clear" then
-      if args[2] ~= "yes" then
-        hafen.log():write(NAME .. ": ':gobcache clear yes' throws away all " .. total .. " of them")
-        return
-      end
-      db.entries, db.kinds, db.icons = {}, {}, {}
-      kindOf, kindClass, kindLabel, misses = {}, {}, {}, {}
-      iconRes, iconAt, iconAsks = {}, 0, {}
-      recount()
-      chosen, dirty, unsaved = nil, true, true
-      hafen.store():flush()
-      build()
-      refresh()
-      hafen.log():write(NAME .. ": cache emptied")
-    else
-      show(not (win and win:visible()))
-    end
-  end)
+    local what = args[1]
+    local confirmed = (args[2] == "yes")
+    -- A console line holds the character's own tree, and everything below touches ours.
+    hafen.timer():after(0, function()
+        if what == "stats" then
+            writeStats()
+        elseif what == "scan" then
+            sweep()
+            hafen.log():write(NAME .. ": swept -- " .. totalObjects .. " object(s) cached")
+        elseif what == "clear" then
+            if not confirmed then
+                hafen.log():write(NAME .. ": ':gobcache clear yes' throws away all " .. totalObjects .. " of them")
+                return
+            end
+            clearCache()
+            hafen.log():write(NAME .. ": cache emptied")
+        else
+            toggleWindow()
+        end
+    end)
 end)

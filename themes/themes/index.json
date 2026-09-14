@@ -1,7 +1,7 @@
 {
   "themes": [
     "default.json",
-    "plainframe.json",
+    "simple.json",
     "hellokitty.json",
     "cyberpunk.json"
   ]

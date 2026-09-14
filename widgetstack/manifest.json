@@ -1,9 +1,9 @@
 {
   "name": "WidgetStack",
   "id": "widgetstack",
-  "version": "0.9.3",
-  "author": "brodgar",
-  "description": "Example addon: what a widget is and how to name it -- a live stack of the widgets under the cursor, a click-to-inspect window over hafen.ui()'s tree reads, a self-validating selector inspector that offers only selectors which actually resolve to the widget you are pointing at, and a live treeview of every widget the character has up, to expand, outline and inspect.",
+  "version": "0.9.6",
+  "author": "irongete",
+  "description": "Developer tool: shows the widgets under the cursor, a treeview of every widget on screen, and the selectors that reach them.",
   "api_version": "1.0",
   "files": [
     "main.lua"

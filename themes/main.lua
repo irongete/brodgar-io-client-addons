@@ -26,12 +26,14 @@ local INDEX  = FOLDER .. "index.json"
 -- release has to stay reachable, or a broken theme could only be undone by editing files.
 local RELEASE = "off"
 
+-- The theme the option starts on: default.json, the client's own look written out key by key.
+local DEFAULT = "default"
+
 -- ------------------------------------------------------------------ state
 
 local themes  = {}    -- name -> { name, file, title, description, rules }
 local order   = {}    -- the names, in the index's own order
 local active  = nil   -- the name installed by this addon, or nil for the client's own look
-local settings = hafen.store():var("settings")   -- account-wide; filled before this file runs
 
 -- ------------------------------------------------------------------ reading the folder
 
@@ -128,7 +130,7 @@ end
 -- THE OPTION IS ALSO THE ANSWER. The command below writes it instead of installing anything itself, so
 -- there is one path into a theme and one place the theme in force lives. A theme the folder no longer
 -- carries is simply not among the choices, and the client falls back to the option's default, which is
--- the release.
+-- "default".
 
 local opts = hafen.client():options():addon()
 local row      -- the choice, once the folder has been read
@@ -155,23 +157,11 @@ local function wear(name)
   end
 end
 
--- What the option reads on a client that has never been told otherwise. The theme in force used to be this
--- addon's own account-wide saved variable, so one remembered there seeds the option -- and this is the last
--- thing that ever reads it from there, which is why it is taken out on the way past. One naming a theme the
--- folder has stopped carrying seeds nothing, exactly as a stored value the option no longer offers would.
-local function seed()
-  local was = settings.theme
-  if was == nil then return RELEASE end
-  settings.theme = nil
-  hafen.store():flush()
-  return ((type(was) == "string") and themes[was]) and was or RELEASE
-end
-
 local function declare()
   local choices = {RELEASE}
   for i = 1, #order do choices[i + 1] = order[i] end
 
-  row = opts:choice("theme"):choices(choices):default(seed()):add()
+  row = opts:choice("theme"):choices(choices):default(DEFAULT):add()
 
   row:on("Changed", function(name) step(function() wear(name) end) end)
 end

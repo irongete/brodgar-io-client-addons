@@ -44,7 +44,7 @@ local M     = EDGE + PAD            -- from the panel's edge to the map's
 local GRIP  = 10                    -- the strip above the map that drags the whole thing
 local MIN   = 64                    -- a map smaller than this is one you cannot read
 
-local saved = hafen.store():get("state")
+local saved = hafen.store():var("state")
 if saved.on == nil then saved.on = true end
 
 local dressed = {}                  -- one record per character, each with that character's own map

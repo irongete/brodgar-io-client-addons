@@ -169,7 +169,7 @@ local AREA_NAME = {
   build   = "build area",
 }
 
-local function areas() return hafen.store():get("areas") end
+local function areas() return hafen.store():var("areas") end
 
 local function areaBox(which)
   local a = areas()[which]

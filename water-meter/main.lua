@@ -60,7 +60,7 @@ end
 -- That is what stops the bar reading 100% the moment you log in. Two waterskins, one full and one empty,
 -- are one resource name: the full one teaches the capacity and the empty one is charged for it in the
 -- same frame. Carry nothing but empties and the store answers from the last time you carried a full one.
-local learnedCapacities = hafen.store():get("capacities")
+local learnedCapacities = hafen.store():var("capacities")
 
 local function learnCapacity(resourceName, capacity)
   if (resourceName == nil) or (capacity == nil) or (capacity <= 0) then return end

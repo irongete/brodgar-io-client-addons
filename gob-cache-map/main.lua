@@ -61,8 +61,8 @@ local KINDS = {
 
 -- ---------------------------------------------------------------- the cache on disk
 
-local db = hafen.store():get("cache")
-local ui = hafen.store():get("ui")
+local db = hafen.store():var("cache")
+local ui = hafen.store():var("ui")
 
 if db.v ~= 1 then                                  -- no layout but this one is ever read
   for k in pairs(db) do db[k] = nil end

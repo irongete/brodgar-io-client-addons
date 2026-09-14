@@ -140,7 +140,7 @@ local SESS_AT = {
   FlowerMenuAdded = 2, FlowerMenuRemoved = 2,
 }
 
-local st = hafen.store():get("settings")          -- the account's own table; filled before this file runs
+local st = hafen.store():var("settings")          -- the account's own table; filled before this file runs
 st.sources = st.sources or {out = true, ["in"] = true, bus = true, widget = false}
 if st.atLogin == nil then st.atLogin = true end   -- record from the load, rather than from the window
 

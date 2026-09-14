@@ -94,7 +94,7 @@ local function step(fn)
   hafen.timer():after(0, fn)
 end
 
-local saved = hafen.store():get("bars")     -- filled before this file runs
+local saved = hafen.store():var("bars")     -- filled before this file runs
 saved.list = saved.list or {}               -- { {n = , x = , y = }, ... }: where each bar stands
 
 local function record(n)

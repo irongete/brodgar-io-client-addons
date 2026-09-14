@@ -44,7 +44,7 @@ local language = opts:choice("language"):choices(names):default("English"):add()
 -- collected again as you play, and a string put aside is put aside for this session.
 local strings  = {}                              -- every (surface, text) seen this session: strings[surface][text] = true
 local ignored  = {}                              -- the ones not to translate, the same shape
-local settings = hafen.store():get("settings")   -- where the window stands, and whether it was open
+local settings = hafen.store():var("settings")   -- where the window stands, and whether it was open
 
 local current                            -- the code in force, nil while English is displayed
 local win, box, entry, source, status, viewBox, filterBox
@@ -63,7 +63,7 @@ local function codeOf(name)
 end
 
 local function docOf(code)               -- the language's live document, in the store
-  local d = hafen.store():get(code)
+  local d = hafen.store():var(code)
   if not d.text then d.text = {} end
   return d
 end

@@ -19,7 +19,7 @@ local SAVE_EVERY = 2                 -- seconds between reads of where the user 
 local win                            -- the window, or nil once the user has closed it
 local rows = {}                      -- [account] = {go = <button>, close = <button>}
 local newbtn                         -- the button under them: go to the login screen
-local place = hafen.store():get("window")   -- the account's own table; filled before this file runs
+local place = hafen.store():var("window")   -- the account's own table; filled before this file runs
 
 -- The character where there is one, the account before there is: a session that has connected but not
 -- reached the world is playing nobody yet, and the account is the whole of its name.

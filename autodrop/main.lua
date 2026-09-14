@@ -445,7 +445,7 @@ local function adopt(s)
   local hud = s:ui():match("@GameUI")
   if not hud then return end                       -- no HUD, no tree to stand in: not in the world yet
 
-  local ok, t = pcall(function() return s:store():get("settings") end)
+  local ok, t = pcall(function() return s:store():var("settings") end)
   if not ok then return end                        -- its folder is not there yet either
 
   local st = {s = s, hud = hud, saved = t, wanted = {}, watching = {}, rows = {}}

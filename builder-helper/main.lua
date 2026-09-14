@@ -72,11 +72,11 @@ end)
 
 -- Saved: [key] = {pos = Position, name = "Stonestead", rows = {{res = "gfx/invobjs/...", text = "2/150",
 -- have = 2, total = 150}, ...}}. Everything in it is plain data or a Position, so it round-trips as-is.
-local sites = hafen.store():get("sites")
+local sites = hafen.store():var("sites")
 
 -- Whether the labels are up. It is saved, so reloading the addon or restarting the client leaves them
 -- exactly as you left them: a display you turned on and walked away from does not quietly go out.
-local shown = hafen.store():get("shown")
+local shown = hafen.store():var("shown")
 local showing = shown.on == true
 
 local gesture = nil          -- {gob, session, still, timer}: the site a right-click named, until its window

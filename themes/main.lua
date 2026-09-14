@@ -31,7 +31,7 @@ local RELEASE = "off"
 local themes  = {}    -- name -> { name, file, title, description, rules }
 local order   = {}    -- the names, in the index's own order
 local active  = nil   -- the name installed by this addon, or nil for the client's own look
-local settings = hafen.store():get("settings")   -- account-wide; filled before this file runs
+local settings = hafen.store():var("settings")   -- account-wide; filled before this file runs
 
 -- ------------------------------------------------------------------ reading the folder
 

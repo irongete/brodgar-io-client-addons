@@ -19,7 +19,7 @@ local TURN_EPS = math.pi / 45    -- four degrees: how far things have to come ro
 -- ---------------------------------------------------------------- the keys
 
 local keys = hafen.client():options():keybindings()
-local saved = hafen.store():get("settings")
+local saved = hafen.store():var("settings")
 
 -- The four keys, as a direction ON THE SCREEN: `up` is towards the top of it and `right` towards the right.
 -- Two of them at once add, which is the whole of the diagonals -- W and D give (1, 1), which is forty-five

@@ -209,7 +209,7 @@ local wins = {}                         -- keyed by the Session, which is intern
 -- character opens the chat where this user likes the chat, and dragging it on one moves it for all of them.
 -- Reached with no address for exactly that reason: an account variable has no session to name.
 local function saved()
-  return hafen.store():get("window")
+  return hafen.store():var("window")
 end
 
 -- ---------------------------------------------------------------- where it may stand

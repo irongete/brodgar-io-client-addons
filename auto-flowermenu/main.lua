@@ -13,7 +13,7 @@ local REMOVE_WIDTH = 24 -- the X of a row: a Button's own art is 24 wide, and na
 -- filled before this file runs, and it is the table itself: writing into it is saving, and flush() is
 -- what puts it on disk right away rather than on the timer. It starts empty: every caption on it is
 -- one the user added.
-local settings = hafen.store():get("settings")
+local settings = hafen.store():var("settings")
 if settings.labels == nil then
     settings.labels = {}
 end

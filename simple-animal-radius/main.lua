@@ -78,7 +78,7 @@ local WIDTH   = {0, 200}
 --   custom        = {...}   the names the user added, in order
 --   per[name]     = {radius=, fill=, opacity=, border=, width=, through=}   that animal's own look; a
 --                           field left out reads the general row
-local store = hafen.store():get("animals")
+local store = hafen.store():var("animals")
 store.off     = store.off     or {}
 store.removed = store.removed or {}
 store.custom  = store.custom  or {}

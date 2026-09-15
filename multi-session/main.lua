@@ -59,8 +59,19 @@ hafen.timer():every(configuration.RETRY_INTERVAL_SECONDS, MultiSession.Selection
 
 -- Subscribes to session lifecycle events to keep UI and selection circles synchronized
 for _, event_name in ipairs({"SessionAdded", "SessionEnteredWorld", "SessionSelected", "SessionRemoved"}) do
-  hafen.event():on(event_name, function()
+  hafen.event():on(event_name, function(session)
     hafen.timer():after(0, function()
+      local pending_account = MultiSession.UI.get_pending_switch_account()
+      if pending_account and session and (event_name == "SessionAdded" or event_name == "SessionEnteredWorld") then
+        local session_account = session:user()
+        if session_account == pending_account then
+          local switch_success = MultiSession.UI.switch_to_session(session_account)
+          if switch_success then
+            MultiSession.UI.clear_pending_switch_account()
+          end
+        end
+      end
+
       MultiSession.UI.refresh_session_window()
       MultiSession.SelectionCircles.synchronize_selection_circles()
     end)

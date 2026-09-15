@@ -16,6 +16,24 @@ local separator_widget = nil
 local new_session_button = nil
 local stored_window_position = hafen.store():var("window")
 
+-- Pending account name awaiting connection and viewport switch
+local pending_switch_account_name = nil
+
+-- Returns the account name of the pending session switch, if any.
+function MultiSession.UI.get_pending_switch_account()
+  return pending_switch_account_name
+end
+
+-- Sets the account name of the pending session switch.
+function MultiSession.UI.set_pending_switch_account(account_name)
+  pending_switch_account_name = account_name
+end
+
+-- Clears the pending session switch.
+function MultiSession.UI.clear_pending_switch_account()
+  pending_switch_account_name = nil
+end
+
 -- Resolves the character name if available, falling back to the account name.
 function MultiSession.UI.get_session_label(session)
   return session:character() or session:user()
@@ -23,9 +41,11 @@ end
 
 -- Switches the active client viewport to the specified account session.
 function MultiSession.UI.switch_to_session(account_name)
+  pending_switch_account_name = nil
+
   local target_session = hafen.session():get(account_name)
   if not (target_session and target_session:exists()) then
-    return
+    return false
   end
 
   -- Sessions still connecting may not possess an active viewport yet.
@@ -35,7 +55,10 @@ function MultiSession.UI.switch_to_session(account_name)
 
   if not success and error_message then
     hafen.log():write(error_message)
+    return false
   end
+
+  return success
 end
 
 -- Logs out and terminates a session by account name.
@@ -48,6 +71,7 @@ end
 
 -- Returns to the client login screen while keeping all current sessions connected.
 function MultiSession.UI.switch_to_login_screen()
+  pending_switch_account_name = nil
   hafen.session():current(nil)
   MultiSession.UI.refresh_session_window()
 end
@@ -61,7 +85,9 @@ function MultiSession.UI.create_session_row(account_name)
     :text(account_name)
 
   select_button:on("Pressed", function()
-    MultiSession.UI.switch_to_session(account_name)
+    hafen.timer():after(0, function()
+      MultiSession.UI.switch_to_session(account_name)
+    end)
   end)
 
   local close_button = hafen.ui():button()
@@ -72,7 +98,9 @@ function MultiSession.UI.create_session_row(account_name)
     :tooltip("Log this character out")
 
   close_button:on("Pressed", function()
-    MultiSession.UI.close_session(account_name)
+    hafen.timer():after(0, function()
+      MultiSession.UI.close_session(account_name)
+    end)
   end)
 
   return {
@@ -81,15 +109,59 @@ function MultiSession.UI.create_session_row(account_name)
   }
 end
 
--- Connects an inactive saved session using its stored authentication token.
+-- Connects an inactive saved session and transitions the client viewport once connected.
 function MultiSession.UI.connect_saved_session(account_name)
+  local target_session = hafen.session():get(account_name)
+  if target_session and target_session:exists() then
+    MultiSession.UI.switch_to_session(account_name)
+    return
+  end
+
+  pending_switch_account_name = account_name
+  MultiSession.UI.refresh_session_window()
+
   local success, error_message = pcall(function()
     hafen.session():add(account_name)
   end)
 
-  if not success and error_message then
-    hafen.log():write(error_message)
+  if not success then
+    pending_switch_account_name = nil
+    MultiSession.UI.refresh_session_window()
+    if error_message then
+      hafen.log():write(error_message)
+    end
+    return
   end
+
+  -- Periodically polls to switch as soon as the session and its screen are ready
+  local retry_count = 0
+  local function attempt_pending_switch()
+    if pending_switch_account_name ~= account_name then
+      return
+    end
+
+    local candidate_session = hafen.session():get(account_name)
+    if candidate_session and candidate_session:exists() then
+      local switch_success = MultiSession.UI.switch_to_session(account_name)
+      if switch_success then
+        pending_switch_account_name = nil
+        MultiSession.UI.refresh_session_window()
+        return
+      end
+    end
+
+    retry_count = retry_count + 1
+    if retry_count < 30 and pending_switch_account_name == account_name then
+      hafen.timer():after(0.2, attempt_pending_switch)
+    else
+      if pending_switch_account_name == account_name then
+        pending_switch_account_name = nil
+        MultiSession.UI.refresh_session_window()
+      end
+    end
+  end
+
+  hafen.timer():after(0.2, attempt_pending_switch)
 end
 
 -- Creates a button for an inactive saved session.
@@ -102,7 +174,9 @@ function MultiSession.UI.create_saved_session_button(account_name)
     :tooltip("Connect saved session: " .. account_name)
 
   connect_button:on("Pressed", function()
-    MultiSession.UI.connect_saved_session(account_name)
+    hafen.timer():after(0, function()
+      MultiSession.UI.connect_saved_session(account_name)
+    end)
   end)
 
   return connect_button
@@ -230,8 +304,13 @@ function MultiSession.UI.refresh_session_window()
       saved_session_buttons[account_name] = connect_button
     end
 
-    if connect_button:text() ~= account_name then
-      connect_button:text(account_name)
+    local button_label = account_name
+    if pending_switch_account_name == account_name then
+      button_label = account_name .. " ..."
+    end
+
+    if connect_button:text() ~= button_label then
+      connect_button:text(button_label)
     end
 
     local button_position = connect_button:position()
@@ -299,7 +378,9 @@ function MultiSession.UI.create_session_window()
     :text("New session")
     :tooltip("Go to the login screen -- your characters stay logged in")
 
-  new_session_button:on("Pressed", MultiSession.UI.switch_to_login_screen)
+  new_session_button:on("Pressed", function()
+    hafen.timer():after(0, MultiSession.UI.switch_to_login_screen)
+  end)
 
   session_window:on("Close", function()
     session_window = nil
@@ -307,6 +388,7 @@ function MultiSession.UI.create_session_window()
     saved_session_buttons = {}
     separator_widget = nil
     new_session_button = nil
+    pending_switch_account_name = nil
   end)
 
   MultiSession.UI.refresh_session_window()

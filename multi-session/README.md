@@ -28,6 +28,7 @@ Configurable in **Options ▸ AddOns ▸ Multi-Session**:
 
 ## Permissions
 
+* `session.add` — connect saved character sessions.
 * `session.close` — log out any of your characters.
 
 ## Window Position

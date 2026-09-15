@@ -1,0 +1,21 @@
+{
+  "id": "multi-session",
+  "name": "Multi-Session",
+  "version": "1.0.0",
+  "author": "brodgar",
+  "description": "Manages multiple character sessions with hotkeys, quick switching, options for sorting accounts, and ground selection circles.",
+  "api_version": "1.0",
+  "files": [
+    "config.lua",
+    "options.lua",
+    "ui.lua",
+    "selection_circles.lua",
+    "main.lua"
+  ],
+  "permissions": [
+    "session.close",
+    "session.add"
+  ],
+  "dependencies": [],
+  "optional_dependencies": []
+}

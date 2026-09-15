@@ -100,11 +100,41 @@ local STACK_MAXROWS = 11            -- stack rows that fit above the selector pa
 -- up, so every walk and every offered line goes through hafen.session():current() -- the one the pointer is
 -- over. On the login screen there is none, and the panel simply offers nothing.
 
-local SPELL = "hafen.session():current():ui()"     -- what an offered line is pasted as
+local SPELL = "hafen.session():current():ui()"     -- default fallback prefix for pasted selectors
 
-local function clientUi()
-  local s = hafen.session():current()
-  return s and s:ui()
+local function find_top_root(widget_node)
+  local current_node = widget_node
+  while current_node and current_node:parent() do
+    current_node = current_node:parent()
+  end
+  return current_node
+end
+
+local function resolve_spell_for_widget(target_widget)
+  local target_root = find_top_root(target_widget)
+  local current_session = hafen.session():current()
+  if current_session and (current_session:ui():root() == target_root) then
+    return "hafen.session():current():ui()", target_root
+  end
+
+  local session_list = hafen.session():list()
+  for session_index = 1, #session_list do
+    local active_session = session_list[session_index]
+    local session_ui = active_session:ui()
+    if session_ui and (session_ui:root() == target_root) then
+      local account_user = active_session:user()
+      if account_user then
+        return ('hafen.session():get("%s"):ui()'):format(account_user), target_root
+      end
+    end
+  end
+
+  return "hafen.session():current():ui()", target_root
+end
+
+local function client_ui()
+  local current_session = hafen.session():current()
+  return current_session and current_session:ui()
 end
 
 local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
@@ -192,9 +222,12 @@ end
 -- The ready-to-paste line for one candidate. :match(sel) answers only where there IS one answer, so it is
 -- offered only when this candidate matches this widget and NOTHING else; otherwise the index form is what actually
 -- hands back this widget. Offering it for the first of several would hand the user a line that raises.
-local function pasteLine(c)
-  if c.count == 1 then return ('%s:match("%s")'):format(SPELL, c.sel) end
-  return ('%s:matchAll("%s")[%d]'):format(SPELL, c.sel, c.idx)
+local function pasteLine(candidate, custom_spell)
+  local spell_prefix = custom_spell or candidate.spell or (insp and insp.spell) or SPELL
+  if candidate.count == 1 then
+    return ('%s:match("%s")'):format(spell_prefix, candidate.sel)
+  end
+  return ('%s:matchAll("%s")[%d]'):format(spell_prefix, candidate.sel, candidate.idx)
 end
 
 -- The walk budget. Candidates are RANKED before a single walk is paid for, so what the cap drops is always the
@@ -205,68 +238,94 @@ local MAXWALKS = 36
 -- Build the selector report for `w`: its parts, its anchor, every candidate built from those that really matches
 -- it (verified by resolving it), most-specific-first, and the one to offer. Costs one s:ui():matchAll() walk per
 -- candidate walked -- which is why it runs on a hover CHANGE, never per frame, and why the count is reported.
-local function selectorsFor(w)
-  local rep = { role = w:role(), cls = w:type(), res = w:res(), walks = 0, chains = 0, cands = {} }
-  if rep.cls == "?" then rep.cls = nil end                  -- no named ancestor: nothing to write after "@"
+local function selectorsFor(target_widget)
+  local report = {
+    role = target_widget:role(),
+    cls = target_widget:type(),
+    res = target_widget:res(),
+    walks = 0,
+    chains = 0,
+    cands = {},
+  }
+  if report.cls == "?" then report.cls = nil end
 
-  -- The widget's OWN attribute (049.1): a window is named by its caption, everything else by what it displays.
-  rep.own = writable(w:text())
-  rep.ownKey = (rep.role == "window") and "title" or "text"
+  local spell_prefix, target_root = resolve_spell_for_widget(target_widget)
+  report.spell = spell_prefix
 
-  -- The role is REQUIRED wherever the widget has one, which halves the enumeration and loses nothing: the role
-  -- is derived from the same Java class @Class names, so `@Label` and `label@Label` match the very same widgets
-  -- and a role-less twin of a candidate is only a vaguer way to say it. It is also load-bearing for [title=],
-  -- which is a parse error off the window role -- caption and role always travel together.
+  report.own = writable(target_widget:text())
+  report.ownKey = (report.role == "window") and "title" or "text"
+
   local keys = {}
-  if rep.role then keys[#keys + 1] = { req = true, forms = { { s = rep.role, wgt = 1 } } } end
-  if rep.cls then keys[#keys + 1] = { forms = { { s = "@" .. rep.cls, wgt = 2 } } } end
-  if rep.own then keys[#keys + 1] = { forms = attrForms(rep.ownKey, rep.own, 4) } end
-  local resv = writable(rep.res)
-  if resv then keys[#keys + 1] = { forms = resForms(resv) } end
+  if report.role then keys[#keys + 1] = { req = true, forms = { { s = report.role, wgt = 1 } } } end
+  if report.cls then keys[#keys + 1] = { forms = { { s = "@" .. report.cls, wgt = 2 } } } end
+  if report.own then keys[#keys + 1] = { forms = attrForms(report.ownKey, report.own, 4) } end
+  local resource_value = writable(report.res)
+  if resource_value then keys[#keys + 1] = { forms = resForms(resource_value) } end
 
-  rep.anchor = anchorStep(w)
+  report.anchor = anchorStep(target_widget)
 
-  -- Every step, flat and (where there is an anchor) chained. A chain scores its anchor's specificity on top, so
-  -- it outranks the flat candidate it extends -- which is right twice over: CSS says so, and it is the one that
-  -- names a single widget while a second window of the same caption is open.
-  local all = {}
-  for _, c in ipairs(stepCands(keys)) do
-    all[#all + 1] = { s = c.s, score = c.score, chain = false }
-    if rep.anchor then
-      all[#all + 1] = { s = rep.anchor.s .. " " .. c.s, score = c.score + rep.anchor.wgt, chain = true }
+  local all_candidates = {}
+  for step_index, step_candidate in ipairs(stepCands(keys)) do
+    all_candidates[#all_candidates + 1] = { s = step_candidate.s, score = step_candidate.score, chain = false }
+    if report.anchor then
+      all_candidates[#all_candidates + 1] = {
+        s = report.anchor.s .. " " .. step_candidate.s,
+        score = step_candidate.score + report.anchor.wgt,
+        chain = true,
+      }
     end
   end
-  table.sort(all, function(a, b)
-    if a.score ~= b.score then return a.score > b.score end
-    return #a.s < #b.s
+  table.sort(all_candidates, function(first_candidate, second_candidate)
+    if first_candidate.score ~= second_candidate.score then
+      return first_candidate.score > second_candidate.score
+    end
+    return #first_candidate.s < #second_candidate.s
   end)
-  rep.dropped = math.max(0, #all - MAXWALKS)
+  report.dropped = math.max(0, #all_candidates - MAXWALKS)
 
-  for i = 1, math.min(#all, MAXWALKS) do
-    local c = all[i]
-    rep.walks = rep.walks + 1
-    if c.chain then rep.chains = rep.chains + 1 end
-    -- ...in the tree of the session on screen, which is where the hovered widget stands. pcall covers both
-    -- a candidate that will not parse and the login screen, where there is no session to ask.
-    local ok, hits = pcall(function() return clientUi():matchAll(c.s) end)
-    if ok and hits then
-      local idx
-      for k = 1, #hits do
-        if hits[k] == w then idx = k; break end             -- interned entities: `==` IS the identity test
+  for candidate_index = 1, math.min(#all_candidates, MAXWALKS) do
+    local current_candidate = all_candidates[candidate_index]
+    report.walks = report.walks + 1
+    if current_candidate.chain then report.chains = report.chains + 1 end
+
+    local success, hits = pcall(function()
+      if target_root then
+        return target_root:matchAll(current_candidate.s)
+      elseif client_ui() then
+        return client_ui():matchAll(current_candidate.s)
       end
-      if idx then                                            -- keep ONLY selectors that demonstrably match
-        rep.cands[#rep.cands + 1] = { sel = c.s, score = c.score, count = #hits, idx = idx, chain = c.chain }
+      return nil
+    end)
+
+    if success and hits then
+      local matched_index = nil
+      for hit_index = 1, #hits do
+        if hits[hit_index] == target_widget then
+          matched_index = hit_index
+          break
+        end
+      end
+      if matched_index then
+        report.cands[#report.cands + 1] = {
+          sel = current_candidate.s,
+          score = current_candidate.score,
+          count = #hits,
+          idx = matched_index,
+          chain = current_candidate.chain,
+          spell = spell_prefix,
+        }
       end
     end
   end
-  -- `all` was sorted before the walks, so `cands` is already most-specific-first. The OFFER is the most specific
-  -- candidate that names this widget ALONE -- the one that can be pasted as find() -- falling back to the most
-  -- specific of all when nothing is unique.
-  for i = 1, #rep.cands do
-    if rep.cands[i].count == 1 then rep.offer = rep.cands[i]; break end
+
+  for candidate_index = 1, #report.cands do
+    if report.cands[candidate_index].count == 1 then
+      report.offer = report.cands[candidate_index]
+      break
+    end
   end
-  rep.offer = rep.offer or rep.cands[1]
-  return rep
+  report.offer = report.offer or report.cands[1]
+  return report
 end
 
 -- ================================================================================ the read driver (063.4)
@@ -668,162 +727,282 @@ local TREE_WHEEL    = 3                    -- rows per wheel notch
 local TREE_REFRESH  = 0.5                  -- seconds between the beats that re-read the rows on show
 local TREE_CHAR_W   = 6.7                  -- what a character of the default font is budgeted at, as elsewhere here
 
-local treeRoot                -- the root Widget the rows were built from: a different one is a different tree
-local treeSubscriptions = {}  -- the Added/Removed pair on that tree, dropped with it
-local expanded = {}           -- [widget] = true/false, the nodes the user opened or shut; nil is shut (the root: open)
-local treeRows = {}           -- the rows on show, top to bottom: { node=, depth=, kids=, open=, visible=, label= }
-local treeScroll = 0          -- rows scrolled past above the first drawn one
-local treePick                -- the picked node, outlined on the screen
-local pickPos, pickSize       -- its box, read on the step for the outline painter
-local treeDirty = true        -- the rows need rebuilding: a widget came or went, a click, a new tree
-local treeClock = 0           -- seconds since the last rebuild (the slow beat)
-local treeWho                 -- whose tree it is, for the header
+local session_subscriptions = {}
+local event_subscriptions = {}
+local expanded = {}
+local tree_rows = {}
+local tree_scroll = 0
+local tree_pick = nil
+local pick_position = nil
+local pick_size = nil
+local tree_dirty = true
+local tree_clock = 0
+local discovered_root_count = 0
 
-local function treeLabel(node, kids, open)
-  local id = node:id()
+local function sync_session_subscriptions(session_list)
+  local active_set = {}
+  for session_index = 1, #session_list do
+    local active_session = session_list[session_index]
+    active_set[active_session] = true
+    if not session_subscriptions[active_session] then
+      local session_ui = active_session:ui()
+      if session_ui then
+        session_subscriptions[active_session] = {
+          session_ui:on("*", "Added", function()
+            tree_dirty = true
+          end),
+          session_ui:on("*", "Removed", function(removed_widget)
+            expanded[removed_widget] = nil
+            if tree_pick == removed_widget then
+              tree_pick = nil
+            end
+            tree_dirty = true
+          end),
+        }
+      end
+    end
+  end
+
+  for session_handle, subscriptions in pairs(session_subscriptions) do
+    if not active_set[session_handle] then
+      for subscription_index, subscription in ipairs(subscriptions) do
+        subscription:off()
+      end
+      session_subscriptions[session_handle] = nil
+    end
+  end
+end
+
+local function reset_tree_subscriptions()
+  for session_handle, subscriptions in pairs(session_subscriptions) do
+    for subscription_index, subscription in ipairs(subscriptions) do
+      subscription:off()
+    end
+  end
+  session_subscriptions = {}
+
+  for subscription_index, subscription in ipairs(event_subscriptions) do
+    subscription:off()
+  end
+  event_subscriptions = {}
+end
+
+local function discover_roots()
+  local roots = {}
+  local seen_roots = {}
+
+  local session_list = hafen.session():list()
+  sync_session_subscriptions(session_list)
+
+  for session_index = 1, #session_list do
+    local active_session = session_list[session_index]
+    local session_ui = active_session:ui()
+    local session_root = session_ui and session_ui:root()
+    if session_root and not seen_roots[session_root] then
+      seen_roots[session_root] = true
+      local character_name = active_session:character()
+      local account_user = active_session:user()
+      local label_tag = character_name or account_user or ("Session #" .. session_index)
+      roots[#roots + 1] = {
+        root = session_root,
+        name = "Session: " .. label_tag,
+        kind = "session",
+        session = active_session,
+      }
+    end
+  end
+
+  if win then
+    local layer_root = find_top_root(win)
+    if layer_root and not seen_roots[layer_root] then
+      seen_roots[layer_root] = true
+      roots[#roots + 1] = {
+        root = layer_root,
+        name = "Addon Layer",
+        kind = "layer",
+        session = nil,
+      }
+    end
+  end
+
+  local probe_leaf = hafen.ui():hit(10, 10)
+  if probe_leaf then
+    local screen_root = find_top_root(probe_leaf)
+    if screen_root and not seen_roots[screen_root] then
+      seen_roots[screen_root] = true
+      roots[#roots + 1] = {
+        root = screen_root,
+        name = "Screen UI",
+        kind = "screen",
+        session = nil,
+      }
+    end
+  end
+
+  return roots
+end
+
+local function tree_label(node, kids, open)
+  local identifier = node:id()
   local text = node:text()
   local label = node:type() or "?"
-  if id then label = label .. " #" .. id end
+  if identifier then label = label .. " #" .. identifier end
   if text then label = label .. " '" .. text .. "'" end
   if (kids > 0) and not open then label = label .. ("  (%d)"):format(kids) end
   return label
 end
 
--- Point the column at a tree -- or at none, which is what close() does. The subscriptions on the old tree
--- go (:off() is idempotent, and a dead session's are gone already), the new tree gets its pair, and what
--- was opened, picked and scrolled belonged to the old widgets and goes with them.
-local function resetTree(session, root)
-  for _, subscription in ipairs(treeSubscriptions) do subscription:off() end
-  treeSubscriptions, treeRows, expanded = {}, {}, {}
-  treePick, pickPos, pickSize = nil, nil, nil
-  treeScroll = 0
-  treeRoot = root
-  if not root then return end
-  treeSubscriptions[1] = session:ui():on("*", "Added", function() treeDirty = true end)
-  treeSubscriptions[2] = session:ui():on("*", "Removed", function(widget)
-    expanded[widget] = nil                     -- at Removed the widget is a key, not something to read
-    if treePick == widget then treePick = nil end
-    treeDirty = true
-  end)
-end
-
--- One row per node, depth-first, descending into the open subtrees only. A shut node's children are
--- fetched for their count -- the "(n)" on its row -- and not walked.
-local function treeWalk(node, depth, out)
+local function tree_walk(node, depth, out)
   local children = node:children():list()
-  local kids = #children
-  local open = (expanded[node] == true) and (kids > 0)
+  local child_count = #children
+  local is_open = (expanded[node] == true) and (child_count > 0)
   out[#out + 1] = {
     node = node,
     depth = depth,
-    kids = kids,
-    open = open,
+    kids = child_count,
+    open = is_open,
     visible = node:visible(),
-    label = treeLabel(node, kids, open),
+    label = tree_label(node, child_count, is_open),
   }
-  if open then
-    for index = 1, kids do treeWalk(children[index], depth + 1, out) end
+  if is_open then
+    for child_index = 1, child_count do
+      tree_walk(children[child_index], depth + 1, out)
+    end
   end
 end
 
--- Rebuild the rows from the tree of the character on screen -- and re-root first where that is a different
--- tree from last time: another character selected, a relog, the login screen.
-local function rebuildTree()
-  local session = hafen.session():current()
-  local root = session and session:ui():root()
-  if root ~= treeRoot then resetTree(session, root) end
-  treeWho = session and (session:character() or session:user()) or nil
+local function rebuild_tree()
+  local root_descriptors = discover_roots()
+  discovered_root_count = #root_descriptors
+
   local out = {}
-  if root then
-    if expanded[root] == nil then expanded[root] = true end     -- the root starts open
-    treeWalk(root, 0, out)
+  for descriptor_index = 1, #root_descriptors do
+    local descriptor = root_descriptors[descriptor_index]
+    local root_node = descriptor.root
+    local children = root_node:children():list()
+    local child_count = #children
+
+    if expanded[root_node] == nil then
+      expanded[root_node] = true
+    end
+    local is_open = (expanded[root_node] == true) and (child_count > 0)
+
+    out[#out + 1] = {
+      node = root_node,
+      depth = 0,
+      kids = child_count,
+      open = is_open,
+      visible = root_node:visible(),
+      label = ("%s [%s]%s"):format(
+        root_node:type() or "RootWidget",
+        descriptor.name,
+        (child_count > 0 and not is_open) and ("  (%d)"):format(child_count) or ""
+      ),
+    }
+
+    if is_open then
+      for child_index = 1, child_count do
+        tree_walk(children[child_index], 1, out)
+      end
+    end
   end
-  treeRows = out
-  treeScroll = math.max(0, math.min(treeScroll, #out - TREE_MAXROWS))
+
+  tree_rows = out
+  tree_scroll = math.max(0, math.min(tree_scroll, #out - TREE_MAXROWS))
 end
 
--- The column's share of the window's Update: the rebuild when something marked the rows dirty or the slow
--- beat came round, and the picked widget's box for the outline -- two reads of one widget, so the outline
--- follows a window being dragged frame by frame.
-local function treeTick(dt)
-  treeClock = treeClock + dt
-  if treeDirty or (treeClock >= TREE_REFRESH) then
-    treeDirty = false
-    treeClock = 0
-    rebuildTree()
+local function tree_tick(delta_time)
+  tree_clock = tree_clock + delta_time
+  if tree_dirty or (tree_clock >= TREE_REFRESH) then
+    tree_dirty = false
+    tree_clock = 0
+    rebuild_tree()
   end
-  if treePick then
-    pickPos, pickSize = treePick:rootPos(), treePick:size()
+  if tree_pick and tree_pick:exists() then
+    pick_position, pick_size = tree_pick:rootPos(), tree_pick:size()
   else
-    pickPos, pickSize = nil, nil
+    tree_pick, pick_position, pick_size = nil, nil, nil
   end
 end
 
-local function treeScrollBy(rows)
-  treeScroll = math.max(0, math.min(treeScroll + rows, #treeRows - TREE_MAXROWS))
+local function tree_scroll_by(amount_rows)
+  tree_scroll = math.max(0, math.min(tree_scroll + amount_rows, #tree_rows - TREE_MAXROWS))
 end
 
--- The row drawn at y, or nil off the rows.
-local function treeRowAt(y)
-  if y < TREE_Y0 then return nil end
-  local line = math.floor((y - TREE_Y0) / LINE)
-  if line >= TREE_MAXROWS then return nil end
-  return treeRows[treeScroll + line + 1]
+local function tree_row_at(y_coordinate)
+  if y_coordinate < TREE_Y0 then return nil end
+  local line_index = math.floor((y_coordinate - TREE_Y0) / LINE)
+  if line_index >= TREE_MAXROWS then return nil end
+  return tree_rows[tree_scroll + line_index + 1]
 end
 
-local function treeClick(event)
-  local row = treeRowAt(event:y())
+local function tree_click(event)
+  local row = tree_row_at(event:y())
   if row then
-    local markerX0 = TREE_X0 + 6 + row.depth * TREE_INDENT
-    local onMarker = (event:x() >= markerX0) and (event:x() < markerX0 + TREE_MARKER_W)
+    local marker_x0 = TREE_X0 + 6 + row.depth * TREE_INDENT
+    local on_marker = (event:x() >= marker_x0) and (event:x() < marker_x0 + TREE_MARKER_W)
     if event:button() == 3 then
-      openLater(row.node)                                   -- its Inspector, as a click on a stack row opens
-    elseif onMarker and (row.kids > 0) then
+      openLater(row.node)
+    elseif on_marker and (row.kids > 0) then
       expanded[row.node] = not row.open
-      treeDirty = true
-    elseif treePick == row.node then
-      treePick = nil                                        -- a second click lets it go
+      tree_dirty = true
+    elseif tree_pick == row.node then
+      tree_pick = nil
     else
-      treePick = row.node
+      tree_pick = row.node
     end
   end
   event:preventDefault()
 end
 
-local function drawTree(graphics, width, height)
+local function draw_tree(graphics, width, height)
   graphics:color(90, 90, 90)
-  graphics:frect(STACK_X0, 6, 1, height - 12)               -- the divider, between the column and the stack
+  graphics:frect(STACK_X0, 6, 1, height - 12)
   graphics:color()
-  local total = #treeRows
-  local shown = math.max(0, math.min(total - treeScroll, TREE_MAXROWS))
-  local header = "tree: no character on screen"
-  if treeWho then
-    header = ("tree of %s  (%d rows%s)"):format(treeWho, total,
-      (total > shown) and (", %d-%d"):format(treeScroll + 1, treeScroll + shown) or "")
+  local total_count = #tree_rows
+  local shown_count = math.max(0, math.min(total_count - tree_scroll, TREE_MAXROWS))
+
+  local header_text
+  local current_session = hafen.session():current()
+  local active_name = current_session and (current_session:character() or current_session:user())
+  if active_name then
+    header_text = ("tree (%d roots, active: %s, %d rows%s)"):format(
+      discovered_root_count,
+      active_name,
+      total_count,
+      (total_count > shown_count) and (", %d-%d"):format(tree_scroll + 1, tree_scroll + shown_count) or ""
+    )
+  else
+    header_text = ("tree (%d roots, %d rows%s)"):format(
+      discovered_root_count,
+      total_count,
+      (total_count > shown_count) and (", %d-%d"):format(tree_scroll + 1, tree_scroll + shown_count) or ""
+    )
   end
-  graphics:text(header, TREE_X0 + 6, 4)
-  for line = 0, shown - 1 do
-    local row = treeRows[treeScroll + line + 1]
-    local y = TREE_Y0 + line * LINE
-    local x = TREE_X0 + 6 + row.depth * TREE_INDENT
-    local picked = (row.node == treePick)
-    if picked then
+  graphics:text(header_text, TREE_X0 + 6, 4)
+
+  for line_index = 0, shown_count - 1 do
+    local row = tree_rows[tree_scroll + line_index + 1]
+    local y_position = TREE_Y0 + line_index * LINE
+    local x_position = TREE_X0 + 6 + row.depth * TREE_INDENT
+    local is_picked = (row.node == tree_pick)
+    if is_picked then
       graphics:color(90, 65, 20, 200)
-      graphics:frect(TREE_X0 + 2, y - 1, TREE_W - 4, LINE)
+      graphics:frect(TREE_X0 + 2, y_position - 1, TREE_W - 4, LINE)
       graphics:color()
     end
     if row.kids > 0 then
       graphics:color(150, 190, 255)
-      graphics:text(row.open and "[-]" or "[+]", x, y)
+      graphics:text(row.open and "[-]" or "[+]", x_position, y_position)
       graphics:color()
     end
-    if picked then
+    if is_picked then
       graphics:color(240, 190, 90)
     elseif not row.visible then
-      graphics:color(120, 120, 120)                         -- hidden: exactly what a hover never reaches
+      graphics:color(120, 120, 120)
     end
-    local chars = math.floor((TREE_W - 12 - row.depth * TREE_INDENT - TREE_MARKER_W) / TREE_CHAR_W)
-    graphics:text(ellipsis(row.label, math.max(8, chars)), x + TREE_MARKER_W, y)
+    local max_characters = math.floor((TREE_W - 12 - row.depth * TREE_INDENT - TREE_MARKER_W) / TREE_CHAR_W)
+    graphics:text(ellipsis(row.label, math.max(8, max_characters)), x_position + TREE_MARKER_W, y_position)
     graphics:color()
   end
   graphics:color(150, 150, 120)
@@ -872,7 +1051,7 @@ local function drawStack(g, w, h)
   drawReads(g, STACK_X0, STACK_W, reads, READ_HEAD, READ_Y0)        -- 063.4: what the hovered widget answers
   g:color(150, 150, 120)
   g:text("click a row to inspect / a selector to log it (the freeze hotkey holds it)", STACK_X0 + 6, h - 16)
-  drawTree(g, w, h)                                                -- the column to the left of all of that
+  draw_tree(g, w, h)                                               -- the column to the left of all of that
   g:color(120, 120, 120); g:rect(0, 0, w, h); g:color()            -- 1px border
 end
 
@@ -905,22 +1084,24 @@ local PICK_STROKE = 3           -- the picked widget's outline, in design pixels
 
 -- A rectangle outlined with g:line at a stroke of its own, centred on the box's edge as g:rect's hairline
 -- is; the horizontals run half a stroke past each side so the corners fill.
-local function thickRect(g, x, y, w, h, stroke)
-  local half = stroke / 2
-  g:line(x - half, y, x + w + half, y, stroke)
-  g:line(x - half, y + h, x + w + half, y + h, stroke)
-  g:line(x, y, x, y + h, stroke)
-  g:line(x + w, y, x + w, y + h, stroke)
+local function draw_thick_rect(graphics, x_coordinate, y_coordinate, rect_width, rect_height, stroke_width)
+  local half_stroke = stroke_width / 2
+  graphics:line(x_coordinate - half_stroke, y_coordinate, x_coordinate + rect_width + half_stroke, y_coordinate, stroke_width)
+  graphics:line(x_coordinate - half_stroke, y_coordinate + rect_height, x_coordinate + rect_width + half_stroke, y_coordinate + rect_height, stroke_width)
+  graphics:line(x_coordinate, y_coordinate, x_coordinate, y_coordinate + rect_height, stroke_width)
+  graphics:line(x_coordinate + rect_width, y_coordinate, x_coordinate + rect_width, y_coordinate + rect_height, stroke_width)
 end
 
-local function drawOutline(g, w, h)
+local function draw_outline(graphics, width, height)
   if hoverPos and hoverSize then
-    g:color(80, 230, 90); g:rect(hoverPos.x, hoverPos.y, hoverSize.w, hoverSize.h); g:color()
+    graphics:color(80, 230, 90)
+    graphics:rect(hoverPos.x, hoverPos.y, hoverSize.w, hoverSize.h)
+    graphics:color()
   end
-  if pickPos and pickSize then
-    g:color(240, 170, 60)
-    thickRect(g, pickPos.x, pickPos.y, pickSize.w, pickSize.h, PICK_STROKE)
-    g:color()
+  if pick_position and pick_size then
+    graphics:color(240, 170, 60)
+    draw_thick_rect(graphics, pick_position.x, pick_position.y, pick_size.w, pick_size.h, PICK_STROKE)
+    graphics:color()
   end
 end
 
@@ -936,8 +1117,10 @@ local function close()
   last, rows, insp, reads = nil, {}, nil, {}
   hoverPos, hoverSize = nil, nil
   frozen = false
-  resetTree(nil, nil)
-  treeWho = nil
+  reset_tree_subscriptions()
+  tree_pick, pick_position, pick_size = nil, nil, nil
+  tree_rows = {}
+  tree_scroll = 0
 end
 
 -- Build the window, and with it everything that runs only while it stands: the poll and the tree's beat,
@@ -946,23 +1129,23 @@ end
 -- widgetstack costs nothing a frame.
 local function open()
   if win then return end
-  treeDirty = true                  -- the first step builds the column
+  tree_dirty = true                  -- the first step builds the column
   win = hafen.ui():window()
     :title("Widget Stack")
     :size(WIN_W, WIN_H)
     :position(place and place.x or 60, place and place.y or 60)
   -- widget:on(key, fn) hands back a SUB, not the widget (041.3), so none of these can sit mid-chain above.
-  win:on("Draw", function(ev) drawStack(ev:g(), ev:w(), ev:h()) end)
-  win:on("Update", function(dt)
+  win:on("Draw", function(event) drawStack(event:g(), event:w(), event:h()) end)
+  win:on("Update", function(delta_time)
     poll()
-    treeTick(dt)
+    tree_tick(delta_time)
   end)
   win:on("MouseDown", function(event)
-    if event:x() < STACK_X0 then treeClick(event) else stackClick(event) end
+    if event:x() < STACK_X0 then tree_click(event) else stackClick(event) end
   end)
   win:on("Wheel", function(event)
     if event:x() >= STACK_X0 then return end           -- over the stack's part the wheel is nobody's
-    treeScrollBy(((event:amount() > 0) and 1 or -1) * TREE_WHEEL)
+    tree_scroll_by(((event:amount() > 0) and 1 or -1) * TREE_WHEEL)
     event:preventDefault()
   end)
   -- The chrome's close button destroys the window, so there is nothing left to hide: what is kept
@@ -971,7 +1154,27 @@ local function open()
     close()
     hafen.log():write("widgetstack: window closed (X) -- :widgetstack to bring it back")
   end)
-  hafen.ui():overlay():add("outline"):draw(drawOutline)
+
+  event_subscriptions[#event_subscriptions + 1] = hafen.event():on("SessionAdded", function(added_session)
+    tree_dirty = true
+  end)
+  event_subscriptions[#event_subscriptions + 1] = hafen.event():on("SessionEnteredWorld", function(entered_session)
+    tree_dirty = true
+  end)
+  event_subscriptions[#event_subscriptions + 1] = hafen.event():on("SessionSelected", function(selected_session)
+    tree_dirty = true
+  end)
+  event_subscriptions[#event_subscriptions + 1] = hafen.event():on("SessionRemoved", function(removed_session)
+    if session_subscriptions[removed_session] then
+      for subscription_index, subscription in ipairs(session_subscriptions[removed_session]) do
+        subscription:off()
+      end
+      session_subscriptions[removed_session] = nil
+    end
+    tree_dirty = true
+  end)
+
+  hafen.ui():overlay():add("outline"):draw(draw_outline)
   hafen.log():write("widgetstack: window up -- hover the UI; click a row to inspect; :selector logs the hovered widget's selector; :widgetstack toggles it, the freeze hotkey holds it")
 end
 

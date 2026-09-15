@@ -29,7 +29,6 @@ Configurable in **Options ▸ AddOns ▸ Multi-Session**:
 ## Permissions
 
 * `session.close` — log out any of your characters.
-* `session.add` — log in remembered accounts saved by the login screen.
 
 ## Window Position
 

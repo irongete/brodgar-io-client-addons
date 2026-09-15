@@ -13,8 +13,7 @@
     "main.lua"
   ],
   "permissions": [
-    "session.close",
-    "session.add"
+    "session.close"
   ],
   "dependencies": [],
   "optional_dependencies": []

@@ -11,13 +11,11 @@ local persistent_settings = hafen.store():var("settings")
 
 -- Queries saved account names remembered by the client engine.
 local function fetch_saved_accounts()
-  if hafen.session().saved then
-    local success, saved_accounts = pcall(function()
-      return hafen.session():saved()
-    end)
-    if success and type(saved_accounts) == "table" then
-      return saved_accounts
-    end
+  local success, saved_accounts = pcall(function()
+    return hafen.session():saved()
+  end)
+  if success and type(saved_accounts) == "table" then
+    return saved_accounts
   end
   return {}
 end

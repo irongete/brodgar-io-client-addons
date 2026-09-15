@@ -1,7 +1,7 @@
 {
   "id": "multi-session",
   "name": "Multi-Session",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "brodgar",
   "description": "Manages multiple character sessions with hotkeys, quick switching, options for sorting accounts, and ground selection circles.",
   "api_version": "1.0",

@@ -60,6 +60,7 @@ Then, from PowerShell:
 | `item-indicators` | Two readings on every item icon: the quality it states, and the durability it has left | — |
 | `paint` | Draw on the ground with the mouse | — |
 | `profiler` | Where the frame went — a six-tab window over `hafen.client():profiling()` with the frame graph and phases, render passes and GL counters, per-widget and per-addon cost, the pull-only counters and the overhead accounting | `client.settings` |
+| `resourcestack` | Every resource the client holds, as a searchable list — pick one and the panel shows its version, a preview of its image and every layer with what `layer:info()` decodes (image geometry, tooltip and pagina text, audio volume, neg and obst rings, anim frames, props and meta); Fetch asks the client for a name it has not loaded yet and follows the load or its error | — |
 | `session-manager` | One row per login the client holds: go to that character, log it out, or cycle to the next with a hotkey | `session.close` |
 | `simple-animal-radius` | A round patch laid on the ground under every aggressive animal in view, following it as it moves | — |
 | `simple-chat` | Replaces the client's chat with a window whose channels are tabs across the top, dragged by its body and resized from the bottom-right corner | `chat.send`, `console.run` |

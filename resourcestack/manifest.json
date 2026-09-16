@@ -1,0 +1,11 @@
+{
+  "name": "ResourceStack",
+  "id": "resourcestack",
+  "version": "1.0.0",
+  "author": "irongete",
+  "description": "Developer tool: every resource the client holds, searchable, with each layer of the one you pick decoded, a preview of its image, and a Fetch button for a name the client has not loaded yet.",
+  "api_version": "1.0",
+  "files": [
+    "main.lua"
+  ]
+}

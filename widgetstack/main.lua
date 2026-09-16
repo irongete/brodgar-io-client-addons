@@ -137,6 +137,17 @@ local function client_ui()
   return current_session and current_session:ui()
 end
 
+-- THE BOX A HIGHLIGHT OUTLINES: the widget's top-left in root coords and its whole box. widget:size() is the
+-- box a write takes -- on a window, its CONTENT area -- and the outline wants the frame around it, which is
+-- widget:chrome().frame on a window wearing the client's decoration; every other widget's box is its size.
+local function outline_box(widget_node)
+  local top_left = widget_node:rootPos()
+  local box = widget_node:size()
+  local chrome = widget_node:chrome()
+  if chrome and chrome.frame then box = chrome.frame end
+  return top_left, box
+end
+
 local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 
 local function ellipsis(s, n) return (#s <= n) and s or (s:sub(1, n - 2) .. "..") end
@@ -602,7 +613,7 @@ local function rebuild()
     if out[index].node:owned() then overOwn = true end
   end
   if last and (#out > 1) and not overOwn then
-    hoverPos, hoverSize = last:rootPos(), last:size()
+    hoverPos, hoverSize = outline_box(last)
   else
     hoverPos, hoverSize = nil, nil
   end
@@ -919,7 +930,7 @@ local function tree_tick(delta_time)
     rebuild_tree()
   end
   if tree_pick and tree_pick:exists() then
-    pick_position, pick_size = tree_pick:rootPos(), tree_pick:size()
+    pick_position, pick_size = outline_box(tree_pick)
   else
     tree_pick, pick_position, pick_size = nil, nil, nil
   end

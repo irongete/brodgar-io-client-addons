@@ -47,7 +47,7 @@
 -- a row here is a string, so two identical lines would be one pick: "#" makes every line its own, and
 -- recOf maps it back to the record behind it.
 --
--- NOTHING IS DRAWN FROM A HANDLER. A handler appends to the ring and marks it dirty; the window's Tick
+-- NOTHING IS DRAWN FROM A HANDLER. A handler appends to the ring and marks it dirty; the window's Update
 -- rewrites the list at most once a frame, and only while dirty, unpaused and visible.
 --
 -- THE HOT PATH STAYS SHORT. A handler builds one record and appends it, and what the row SAYS -- its
@@ -74,8 +74,17 @@
 -- uses, and for the same reason: the point of reading a message name off a window is to type it into a
 -- file.
 --
--- Its place is the ACCOUNT's saved variable, not w:remember(name): that files a placement under the
--- character on screen, and this window stands in the layer, above every one of them.
+-- Its place and its size are the ACCOUNT's saved variable, not w:remember(name): that files a placement
+-- under the character on screen, and this window stands in the layer, above every one of them.
+--
+-- THE WINDOW RESIZES from the client's own corner grip (window:resizable(true)): the toolbar keeps its rows,
+-- the two lists take the width, and the log takes the height while the detail keeps its lines -- re-laid
+-- from Update whenever window:size() moved, so it follows the drag live. Its floor is the toolbar's own
+-- width and a few log rows; the size lands in the saved variable once the grip is released.
+--
+-- THE X HIDES, IT DOES NOT DESTROY: the Close handler cancels the client's destroy and hides the window, so
+-- the filters, the pick and the scroll survive a close, and :eventstack shows it again. What the doors do
+-- is unchanged: with `at login` unticked they shut behind a hidden window and open again when it shows.
 
 local CAP        = 300               -- records kept, and the most the list can draw; past it the oldest go
 local PAD        = 6                 -- design px between the window's content edge and what is inside it
@@ -90,7 +99,8 @@ local FONT_SZ    = 12                -- the mono face the log and the detail are
 local LINE_H     = 16                -- one log row: room for FONT_SZ, and no more
 local CHAR_W     = 7.5               -- what one mono character measures across, in design px (an estimate)
 local BAR        = 20                -- room for a list's own scrollbar
-local LOG_ROWS   = 22                -- rows of log on screen before it scrolls
+local LOG_ROWS   = 22                -- rows of log on screen before it scrolls, at the stock size
+local MIN_LOG_ROWS = 4               -- the fewest the grip may leave on screen
 local DET_ROWS   = 9                 -- lines of detail on screen before it scrolls
 local DUMP       = 60                -- rows the log button writes when no single one is picked
 local DEF_X, DEF_Y = 80, 80          -- where the window stands before the user has moved it
@@ -311,6 +321,13 @@ end
 -- Every door lands here. The record arrives with what it IS -- src, name, who, wclass, about -- and what
 -- it CARRIED -- args, w, p1, p2 -- and leaves with its number, its clock, its line and its haystack.
 local function push(r)
+  -- A widget can be gone by the time its door fires: w:type() and ev:msg() answer nil then, and a nil
+  -- field would break the haystack below. Every column is a string from here on.
+  r.src = r.src or "?"
+  r.name = r.name or "?"
+  r.who = r.who or ""
+  r.wclass = r.wclass or ""
+  r.about = r.about or ""
   seq = seq + 1
   r.n = seq
   r.clock = clock()
@@ -565,7 +582,7 @@ local function armWidget(s)
   if watches[s] then return end
   local user = s:user()
   local a = s:ui():on("*", "Added", function(w)
-    local class = w:type()
+    local class = w:type() or "?"       -- nil when the widget died before this handler ran
     classOf[w] = class
     local id = w:id()          -- the server's own name for it, where it has one: what a uimsg is addressed to
     push{src = "widget", name = "Added", who = user, wclass = class,
@@ -595,6 +612,7 @@ local function watchCtl(s, w, who)
   local held = uiSubs[s]
   if (held == nil) or held[w] then return end
   local class = w:type()
+  if class == nil then return end       -- already gone: nothing to subscribe to, and nil is no table key
   local known = keyOfClass[class]
   if known == false then return end
   local handler = function(ev)
@@ -861,7 +879,33 @@ local function build()
   local d = hafen.ui():listbox():parent(w):position(PAD, detY):size(LIST_W, DET_H):rowHeight(LINE_H)
   d:rule():font(mono)
 
-  w:size(WIN_W, detY + DET_H + PAD)
+  -- The stock box is what the children above were placed for; the floor keeps the toolbar whole and a
+  -- few log rows on screen. The grip changes the box and Resized files it in the saved variable.
+  local stockH = detY + DET_H + PAD
+  local sepH = tall(sp)
+  local minH = logY + MIN_LOG_ROWS * LINE_H + GAP + sepH + GAP + DET_H + PAD
+  w:size(math.max(WIN_W, st.w or WIN_W), math.max(minH, st.h or stockH))
+  w:resizable(true)
+
+  -- Place what follows the box: the buttons keep the right edge, the lists take the width, the log takes
+  -- the height and the detail keeps its lines under it. Called from Update whenever the box moved.
+  local laidW, laidH = 0, 0
+  local function layout()
+    local box = w:size()
+    if not box then return end
+    local width, height = math.max(1, box.w), math.max(1, box.h)
+    laidW, laidH = width, height
+    local innerW = math.max(1, width - PAD * 2)
+    local logH = math.max(MIN_LOG_ROWS * LINE_H, height - logY - GAP - sepH - GAP - DET_H - PAD)
+    lg:position(width - PAD - BTN_W * 2 - GAP, PAD)
+    clr:position(width - PAD - BTN_W, PAD)
+    l:size(innerW, logH)
+    sp:position(PAD, logY + logH + GAP)
+    sp:size(innerW)
+    d:position(PAD, logY + logH + GAP + sepH + GAP)
+    d:size(innerW, DET_H)
+  end
+  layout()
 
   win, log, det, tally = w, l, d, cnt
 
@@ -925,7 +969,10 @@ local function build()
   -- ride the same beat, because a repopulation is a :rows(t) of its own -- and the pick is written back
   -- after the rows, since :rows(t) is what cleared it.
   w:on("Update", function()
-    if dirty and (not paused) and w:visible() then
+    if not w:visible() then return end
+    local box = w:size()
+    if box and ((box.w ~= laidW) or (box.h ~= laidH)) then layout() end
+    if dirty and (not paused) then
       if filtersDirty then
         refill(ds, srcOrder, pickSrc)
         refill(dv, sessOrder, pickSess)
@@ -941,18 +988,28 @@ local function build()
     end
   end)
 
-  -- The chrome's close button destroys the window, so there is nothing left to hide: what is kept
-  -- afterwards is "there is no window", and :eventstack builds a new one at the saved place.
-  w:on("Close", function() close() end)
+  -- Once, on release: the floor is written here and not during the drag, where the grip and this handler
+  -- would take turns writing the size. The box that stands is the one the saved variable keeps.
+  w:on("Resized", function(event)
+    local width, height = math.max(WIN_W, event:w()), math.max(minH, event:h())
+    if (width ~= event:w()) or (height ~= event:h()) then w:size(width, height) end
+    st.w, st.h = width, height
+  end)
+
+  -- The X hides; the window and what it shows stay, and :eventstack shows it again.
+  w:on("Close", function(event)
+    event:preventDefault()
+    close()
+  end)
 
   dirty = true
 end
 
+-- Hide the window. The doors follow `at login` as they always did: ticked, they stay open behind the hidden
+-- window; unticked, they shut with it and toggle() opens them again when it shows.
 close = function()
-  if not st.atLogin then disarm() end     -- with it ticked the doors stay open behind the closed window
-  if win and win:exists() then win:destroy() end
-  win, log, det, tally, pauseBox = nil, nil, nil, nil, nil
-  selLine = nil
+  if not st.atLogin then disarm() end
+  if win and win:exists() then win:visible(false) end
 end
 
 -- ---------------------------------------------------------------------------------------------------
@@ -960,10 +1017,15 @@ end
 
 local function toggle()
   step(function()
-    if win and win:exists() then
+    if win and win:exists() and win:visible() then
       close()
     else
-      build()
+      if win and win:exists() then
+        win:visible(true)
+        dirty = true
+      else
+        build()
+      end
       if not armed then arm() end
     end
   end)

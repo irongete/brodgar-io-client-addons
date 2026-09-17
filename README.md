@@ -20,6 +20,14 @@ The API is documented in the client repository, under
 takes an empty folder to a working addon. Nothing here is a library to build on: a page of the reference
 carries its own example.
 
+## Test one
+
+An addon is loaded from the folder the client's `haven.addondir` names: point the launcher's `addons.dir`
+(Options) at this checkout and the client runs what you are editing, reloaded in-game with `:reload`; or
+`ant bin` in the client checkout copies every addon here into its `bin/addons/`. There is no beta for an
+addon — the hub has no channels, so a published version is what every client installs — so this is where
+it is tried.
+
 ## Publish one
 
 Once: create a token in [Configuration](https://brodgar.io/addons/settings) and put it in a `.env` file
@@ -29,15 +37,18 @@ at the root of this repo (git ignores it):
 BRODGAR_TOKEN=bio_...
 ```
 
-Then, from PowerShell:
+Then commit the addon's changes and, from PowerShell:
 
 ```powershell
-.\publish.ps1 gob-cache-map          # manifest 1.0.0 -> 1.0.1, zip, upload
-.\publish.ps1 gob-cache-map 2.0.0    # this version instead
+.\publish.ps1 gob-cache-map                 # the next number: 1.0.0 -> 1.0.1
+.\publish.ps1 -Version 2.0.0 gob-cache-map  # this number
 ```
 
-[`publish.ps1`](publish.ps1) writes the version into `manifest.json`, zips the folder and uploads it to
-[the hub](https://brodgar.io/addons). If the upload fails the manifest is put back. Commit the bump afterwards.
+A version is `X.Y.Z`, and every publish takes a new number: Z + 1 of the highest so far — the manifest's, or
+the hub's latest when that is higher. [`publish.ps1`](publish.ps1) refuses an addon folder with uncommitted
+changes, writes the version into `manifest.json`, zips the folder, uploads it to
+[the hub](https://brodgar.io/addons) and commits the manifest as `<id> <version>`, so every published
+version is a commit. If the upload fails the manifest is put back and nothing is committed.
 
 ## The addons
 
@@ -58,11 +69,11 @@ Then, from PowerShell:
 | `inspector-gadget` | A magnifying glass in the action menu | `menugrid.use`, `gob.click` |
 | `item-drop-protection` | With an item on the cursor: left click walks, Ctrl+left click drops | `player.move`, `widget.send` |
 | `item-indicators` | Two readings on every item icon: the quality it states, and the durability it has left | — |
+| `object-radius-indicator` | A round patch laid on the ground under every object on its list that is in view, following it as it moves | — |
 | `paint` | Draw on the ground with the mouse | — |
 | `profiler` | Where the frame went — a six-tab window over `hafen.client():profiling()` with the frame graph and phases, render passes and GL counters, per-widget and per-addon cost, the pull-only counters and the overhead accounting | `client.settings` |
 | `resourcestack` | Every resource the client holds, as a searchable list — pick one and the panel shows its version, a preview of its image and every layer with what `layer:info()` decodes (image geometry, tooltip and pagina text, audio volume, neg and obst rings, anim frames, props and meta); Fetch asks the client for a name it has not loaded yet and follows the load or its error | — |
 | `session-manager` | One row per login the client holds: go to that character, log it out, or cycle to the next with a hotkey | `session.close` |
-| `simple-animal-radius` | A round patch laid on the ground under every aggressive animal in view, following it as it moves | — |
 | `simple-chat` | Replaces the client's chat with a window whose channels are tabs across the top, dragged by its body and resized from the bottom-right corner | `chat.send`, `console.run` |
 | `simple-gob-hider` | One key hides the game objects whose resource is on its list and paints a yellow patch over the ground each of them stands on | — |
 | `simple-minimap` | Puts the corner minimap in the action bars' box: the client's carved plate off, the eight-piece window frame round the map instead | — |

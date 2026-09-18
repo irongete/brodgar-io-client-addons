@@ -7,7 +7,7 @@ the other eleven pages on screen at the same time, lying flat or standing uprigh
 
 | You do | It does |
 |---|---|
-| set a row to `flat` or `upright` in **Options ▸ AddOns ▸ Actionbars** | puts that bar on screen, lying that way |
+| set a row to `flat` or `upright` in **Options ▸ AddOns ▸ Actionbars** | puts that bar on screen, lying that way: a new one in the middle of the screen, one you had back where you left it |
 | set a row to `off` | takes that bar away. What is in its slots stays on the server, untouched |
 | press `Reset bars position` | puts every bar back in the middle of the screen, one under the next |
 | type `:actionbars`, or press **Actionbars** in the action menu | says which bars are on, and where they are managed |
@@ -128,8 +128,8 @@ They start **unbound**, like every addon hotkey: the client gives one key to one
 claimed a key already in use would simply lose it and leave you with a hotkey that never fires. Yours is the
 assignment.
 
-A button prints its key in the corner the way the client's own bar does, and its own number while it has
-none. The key belongs to the client's registry rather than to this addon, so removing a bar and adding it
+A button prints its key in the corner the way the client's own bar does, and nothing while it has none.
+The key belongs to the client's registry rather than to this addon, so removing a bar and adding it
 back gets the same keys — and a `:reload` never costs you an assignment.
 
 ### Nothing is reserved
@@ -194,8 +194,9 @@ and only the bars this addon hid.
 Nothing else is left behind: the bars go, the client's bar returns, and the slots have whatever you left in
 them.
 
-## What it cannot do
+## Other addons' entries
 
-**Take another addon's menu entry.** An entry an addon added belongs to that addon, and only that addon can
-hold a slot for it — so dragging one onto a bar here is refused, and the refusal names the owner in the log.
-The game's own actions all work, and so do this addon's.
+An entry any addon added to the action menu can be dropped on a bar. The slot is held for it on the client
+and the server never hears about it; the entry's owner keeps its name, icon and handlers. The hold ends when
+that addon removes the entry, reloads or is disabled, and the server's own content underneath comes back
+untouched.

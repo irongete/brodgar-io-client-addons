@@ -8,7 +8,7 @@
 --   hotkeys.lua    "Actionbar<N> slot <I>" keybindings and the corner labels
 --   bars.lua       the widgets of one bar, one copy per login
 --   sync.lua       client belt hide/restore, sync with the options, Reset
---   main.lua       events, console command, action-menu entry, timer
+--   main.lua       events and the label timer
 
 Actionbars = {}
 

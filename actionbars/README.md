@@ -10,7 +10,6 @@ the other eleven pages on screen at the same time, lying flat or standing uprigh
 | set a row to `flat` or `upright` in **Options ▸ AddOns ▸ Actionbars** | puts that bar on screen, lying that way: a new one in the middle of the screen, one you had back where you left it |
 | set a row to `off` | takes that bar away. What is in its slots stays on the server, untouched |
 | press `Reset bars position` | puts every bar back in the middle of the screen, one under the next |
-| type `:actionbars`, or press **Actionbars** in the action menu | says which bars are on, and where they are managed |
 | press `Go to page N` | pages Actionbar1, the way it pages the client's own bar |
 | drag an action onto a button | puts it in that slot |
 | left-click a button | fires it, modifiers and all |
@@ -32,10 +31,6 @@ last dragged it to.
 
 Under the rows are `Reset bars position` and one line saying how many bars are up — and what the last press
 did, since a page is where somebody who just pressed something is looking.
-
-Neither door the addon still has opens anything. `:actionbars` at the console and the **Actionbars** entry in
-the action menu each print which bars are on and where they are managed; the console command is the one that
-answers before you are in the world.
 
 ## A bar is a page, and its number says which
 

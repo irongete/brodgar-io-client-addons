@@ -3,7 +3,7 @@
   "name": "WASD Movement",
   "version": "1.0.0",
   "author": "brodgar",
-  "description": "Walk with W, A, S and D. Each key aims one distant move relative to the way the character is already facing, and letting go stops it.",
+  "description": "Walk with W, A, S and D relative to the camera: W goes up the screen, A and D to either side, S back down, and letting go stops the character.",
   "api_version": "1.0",
   "files": ["main.lua"],
   "permissions": ["player.move", "widget.send"]

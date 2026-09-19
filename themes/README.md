@@ -244,8 +244,8 @@ white text reads on them without a rule, and the login screen stays legible.
 
 ## It reaches addon UI too
 
-The two art themes also dress **Actionbars**, and that addon knows nothing about themes. It NAMES the
-surfaces it builds and DECLARES what they look like by default:
+The two art themes also dress **Actionbars** and **Simple Chat**, and neither addon knows anything about
+themes. Each NAMES the surfaces it builds and DECLARES what they look like by default:
 
 ```lua
 w:name("bar")
@@ -255,9 +255,27 @@ w:stock{ bg = {color = BACK}, border = {box = "gfx/hud/wnd", mode = "tile"} }
 ...and a theme names them back:
 
 ```json
-"[name=actionbars/bar]":  { "bg": { "color": {"r": 9, "g": 13, "b": 22, "a": 224} }, "border": … },
-"[name^=actionbars/slot]": { "bg": { "asset": "themes/cyberpunk/menu-slot.png", "mode": "stretch" } }
+"[name=actionbars/bar]":       { "bg": { "color": {"r": 9, "g": 13, "b": 22, "a": 224} }, "border": … },
+"[name^=actionbars/slot]":     { "bg": { "asset": "themes/cyberpunk/menu-slot.png", "mode": "stretch" } },
+"[name=simple-chat/panel]":    { "bg": { "asset": "themes/cyberpunk/wallpaper.png", "mode": "tile" } },
+"[name^=simple-chat/tab]":     { "font": { "builtin": "mono", "size": 11, "bold": true }, "bg": …, "border": … },
+"[name=simple-chat/selected]": { "font": …, "bg": { "asset": "themes/cyberpunk/button.png" }, "border": … }
 ```
+
+**Simple Minimap** needs no rule at all, and that is the other way an addon meets a theme: its map stands in
+a window, so `window.frame`, `window.title` and the frame's `sizer` dress it as they dress every window, and
+`window[title=Minimap]` is the ordinary way to single it out.
+
+The chat window is seven surfaces: its field (`panel`), its frame (`frame`), the box its lines are laid out
+in (`log`), every tab that is not being read (`tab…`), the one that is (`selected`), the two corners that
+join the stock frame to that tab (`joint…`) and its resize corner (`sizer`) — the addon's README lists them.
+Two things are worth knowing. **A `font` on `log`, `tab` and `selected` reaches the text the addon draws
+there, a `color` does not replace it** — the addon tints its names and lines in colours of its own, and a
+rule's colour composes with a tint rather than winning over it — so both themes set the face and leave the
+colour. And **the selected tab is a surface of its own** rather than a state of the tab's, because a rule
+names what a widget *is* and no selector says "selected": the addon keeps one plate that stands on whichever
+tab is being read, and a theme dresses it apart from the rest. The joints are metal cut for the stock frame,
+so both themes paint them out with a transparent fill.
 
 **One step is enough, and that is the point.** A `stock` sits at the *bottom* of the
 [cascade](https://github.com/irongete/brodgar-io-client/blob/HEAD/docs/addons/api/ui/style/README.md#the-cascade), under every rule — so a theme wins

@@ -2,7 +2,7 @@
   "name": "Hello Kitty",
   "author": "brodgar",
   "description": "Bubblegum chrome and a plum field: pink 9-slice frames, bow close buttons, heart-lined wallpaper and a bow for every tick.",
-  "about": "Art lives in themes/hellokitty/ beside this file and is named by path, relative to the addon folder. Every PNG is authored in DESIGN pixels and at the exact size of the hole the client already draws in, so nothing is stretched out of shape and everything scales with the interface; frames are hairline -- a 1 px rule, a thin body, a 1 px lip -- because a 1.5x client multiplies whatever you write. The window FIELD is deep plum rather than pale pink on purpose: the client draws most of its own text white through the `*` key, and recolouring `*` to suit a pale field would take the login screen with it. And window.title's bg is a TRANSPARENT fill on purpose: the caption plate's box is the client's own scrollwork (77 design px tall, a quarter of the window wide), so no art fits it -- while leaving the property out would bring the stock brown plate back. Painting nothing there puts the caption on the frame's own band. The two meter shapes are a 75x10 trough and a 15x93 box, so the trough art is TILED rather than stretched -- tiled, it repeats at its own size whatever the aspect -- and the frame is a 9-slice, which fits either. `picture` names this theme's own plate, authored at the horizontal bar's 101x24 with the very hole the client's frame has at (22,7)-(97,17), so trough and fill show through it. It REPLACES the blit, so the per-meter glyph the server's art carried -- the heart, the lightning -- is gone and what tells the bars apart is the fill colour. Drop this one property to have them back. A VERTICAL bar is 15x93 and wears the same plate stretched, which is the price of one key covering both shapes. It also dresses the Actionbars addon, which knows nothing about themes: that addon NAMES its bar and its squares and DECLARES what they look like by default, and a declaration sits under every rule -- so one step is enough here, with no chaining and no dependence on which sheet loaded first.",
+  "about": "Art lives in themes/hellokitty/ beside this file and is named by path, relative to the addon folder. Every PNG is authored in DESIGN pixels and at the exact size of the hole the client already draws in, so nothing is stretched out of shape and everything scales with the interface; frames are hairline -- a 1 px rule, a thin body, a 1 px lip -- because a 1.5x client multiplies whatever you write. The window FIELD is deep plum rather than pale pink on purpose: the client draws most of its own text white through the `*` key, and recolouring `*` to suit a pale field would take the login screen with it. And window.title's bg is a TRANSPARENT fill on purpose: the caption plate's box is the client's own scrollwork (77 design px tall, a quarter of the window wide), so no art fits it -- while leaving the property out would bring the stock brown plate back. Painting nothing there puts the caption on the frame's own band. The two meter shapes are a 75x10 trough and a 15x93 box, so the trough art is TILED rather than stretched -- tiled, it repeats at its own size whatever the aspect -- and the frame is a 9-slice, which fits either. `picture` names this theme's own plate, authored at the horizontal bar's 101x24 with the very hole the client's frame has at (22,7)-(97,17), so trough and fill show through it. It REPLACES the blit, so the per-meter glyph the server's art carried -- the heart, the lightning -- is gone and what tells the bars apart is the fill colour. Drop this one property to have them back. A VERTICAL bar is 15x93 and wears the same plate stretched, which is the price of one key covering both shapes. It also dresses the Actionbars and Simple Chat addons, which know nothing about themes: each NAMES the surfaces it builds -- a bar and its squares, a chat window's field, frame and tabs -- and DECLARES what they look like by default, and a declaration sits under every rule -- so one step is enough here, with no chaining and no dependence on which sheet loaded first. Simple Minimap needs no rule of its own: its map stands in a window, so window.frame and window.title dress it as they dress every window, and `window[title=Minimap]` is how a rule would single it out. The chat window's field is the wallpaper and its frame the panel rule, its lines sit on the chat.log wash, and its tabs are hairline boxes on the bar's plum, with the SELECTED one -- a surface of its own, since a rule names what a widget is and not the state it is in -- on the dark rose the captions are written in, inside the frame's own line, so its foot continues the frame's top edge across the mouth the frame leaves under it. NOT the button's pale face: the addon writes its names in a light colour of its own, which a pale plate would swallow. The two brass joints beside that mouth are painted out with a transparent fill, since this frame has no metal to turn the corner with.",
   "rules": {
     "*": {"font": {"builtin": "sans", "size": 10, "aa": true}},
 
@@ -167,6 +167,33 @@
       "border": {"asset": "themes/hellokitty/panel.png", "slice": [4, 4, 4, 4], "mode": "stretch"}
     },
 
-    "[name^=actionbars/slot]": {"bg": {"asset": "themes/hellokitty/menu-slot.png", "mode": "stretch"}}
+    "[name^=actionbars/slot]": {"bg": {"asset": "themes/hellokitty/menu-slot.png", "mode": "stretch"}},
+
+    "[name=simple-chat/panel]": {"bg": {"asset": "themes/hellokitty/wallpaper.png", "mode": "tile"}},
+
+    "[name=simple-chat/frame]": {
+      "border": {"asset": "themes/hellokitty/panel.png", "slice": [4, 4, 4, 4], "mode": "stretch"}
+    },
+
+    "[name=simple-chat/log]": {
+      "font": {"builtin": "sans", "size": 11, "aa": true},
+      "bg": {"color": {"r": 58, "g": 14, "b": 38, "a": 210}}
+    },
+
+    "[name^=simple-chat/tab]": {
+      "font": {"builtin": "sans", "size": 11, "bold": true, "aa": true},
+      "bg": {"color": {"r": 58, "g": 14, "b": 38, "a": 232}},
+      "border": {"color": {"r": 255, "g": 150, "b": 196, "a": 110}, "width": 1}
+    },
+
+    "[name=simple-chat/selected]": {
+      "font": {"builtin": "sans", "size": 11, "bold": true, "aa": true},
+      "bg": {"color": {"r": 122, "g": 43, "b": 78, "a": 240}},
+      "border": {"asset": "themes/hellokitty/panel.png", "slice": [4, 4, 4, 4], "mode": "stretch"}
+    },
+
+    "[name^=simple-chat/joint]": {"bg": {"color": {"r": 0, "g": 0, "b": 0, "a": 0}}},
+
+    "[name=simple-chat/sizer]": {"bg": {"asset": "themes/hellokitty/sizer.png", "mode": "stretch"}}
   }
 }

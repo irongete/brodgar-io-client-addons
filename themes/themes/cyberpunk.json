@@ -2,7 +2,7 @@
   "name": "Cyberpunk",
   "author": "brodgar",
   "description": "Neon on near-black: chamfered cyan rules, magenta accents, corner brackets on every window and a monospaced terminal face throughout.",
-  "about": "Art lives in themes/cyberpunk/ beside this file and is named by path, relative to the addon folder. Every PNG is authored in DESIGN pixels and at the exact size of the hole the client already draws in, so nothing is stretched out of shape and everything scales with the interface; rules are 1 px, because a 1.5x client multiplies whatever you write. The corner brackets are border.parts rather than art baked into the frame -- a motif inside an edge tile would repeat across the whole run. window.title's bg is a TRANSPARENT fill on purpose: the caption plate's box is the client's own scrollwork (77 design px tall, a quarter of the window wide), so no art fits it, while leaving the property out brings the stock plate back. And `*` keeps its own colour, because the field here is near-black and the client's own white text reads on it -- recolouring `*` would take the login screen with it. The two meter shapes are a 75x10 trough and a 15x93 box, so the trough art is TILED rather than stretched -- tiled, it repeats at its own size whatever the aspect -- and the frame is a 9-slice, which fits either. `picture` names this theme's own plate, authored at the horizontal bar's 101x24 with the very hole the client's frame has at (22,7)-(97,17), so trough and fill show through it. It REPLACES the blit, so the per-meter glyph the server's art carried -- the heart, the lightning -- is gone and what tells the bars apart is the fill colour. Drop this one property to have them back. A VERTICAL bar is 15x93 and wears the same plate stretched, which is the price of one key covering both shapes. It also dresses the Actionbars addon, which knows nothing about themes: that addon NAMES its bar and its squares and DECLARES what they look like by default, and a declaration sits under every rule -- so one step is enough here, with no chaining and no dependence on which sheet loaded first.",
+  "about": "Art lives in themes/cyberpunk/ beside this file and is named by path, relative to the addon folder. Every PNG is authored in DESIGN pixels and at the exact size of the hole the client already draws in, so nothing is stretched out of shape and everything scales with the interface; rules are 1 px, because a 1.5x client multiplies whatever you write. The corner brackets are border.parts rather than art baked into the frame -- a motif inside an edge tile would repeat across the whole run. window.title's bg is a TRANSPARENT fill on purpose: the caption plate's box is the client's own scrollwork (77 design px tall, a quarter of the window wide), so no art fits it, while leaving the property out brings the stock plate back. And `*` keeps its own colour, because the field here is near-black and the client's own white text reads on it -- recolouring `*` would take the login screen with it. The two meter shapes are a 75x10 trough and a 15x93 box, so the trough art is TILED rather than stretched -- tiled, it repeats at its own size whatever the aspect -- and the frame is a 9-slice, which fits either. `picture` names this theme's own plate, authored at the horizontal bar's 101x24 with the very hole the client's frame has at (22,7)-(97,17), so trough and fill show through it. It REPLACES the blit, so the per-meter glyph the server's art carried -- the heart, the lightning -- is gone and what tells the bars apart is the fill colour. Drop this one property to have them back. A VERTICAL bar is 15x93 and wears the same plate stretched, which is the price of one key covering both shapes. It also dresses the Actionbars and Simple Chat addons, which know nothing about themes: each NAMES the surfaces it builds -- a bar and its squares, a chat window's field, frame and tabs -- and DECLARES what they look like by default, and a declaration sits under every rule -- so one step is enough here, with no chaining and no dependence on which sheet loaded first. Simple Minimap needs no rule of its own: its map stands in a window, so window.frame and window.title dress it as they dress every window, and `window[title=Minimap]` is how a rule would single it out. The chat window's field is the wallpaper and its frame the panel rule, its lines sit on the chat.log wash in the chat's mono face, and its tabs are hairline boxes on the bar's fill, with the SELECTED one -- a surface of its own, since a rule names what a widget is and not the state it is in -- on the button's gradient inside the frame's own line, so its foot continues the frame's top edge across the mouth the frame leaves under it. The two brass joints beside that mouth are painted out with a transparent fill, since this frame has no metal to turn the corner with.",
   "rules": {
     "*": {"font": {"builtin": "sans", "size": 10, "aa": true}},
 
@@ -172,6 +172,33 @@
       "border": {"asset": "themes/cyberpunk/panel.png", "slice": [4, 4, 4, 4], "mode": "stretch"}
     },
 
-    "[name^=actionbars/slot]": {"bg": {"asset": "themes/cyberpunk/menu-slot.png", "mode": "stretch"}}
+    "[name^=actionbars/slot]": {"bg": {"asset": "themes/cyberpunk/menu-slot.png", "mode": "stretch"}},
+
+    "[name=simple-chat/panel]": {"bg": {"asset": "themes/cyberpunk/wallpaper.png", "mode": "tile"}},
+
+    "[name=simple-chat/frame]": {
+      "border": {"asset": "themes/cyberpunk/panel.png", "slice": [4, 4, 4, 4], "mode": "stretch"}
+    },
+
+    "[name=simple-chat/log]": {
+      "font": {"builtin": "mono", "size": 11, "aa": true},
+      "bg": {"color": {"r": 5, "g": 8, "b": 14, "a": 200}}
+    },
+
+    "[name^=simple-chat/tab]": {
+      "font": {"builtin": "mono", "size": 11, "bold": true, "aa": true},
+      "bg": {"color": {"r": 9, "g": 13, "b": 22, "a": 224}},
+      "border": {"color": {"r": 34, "g": 232, "b": 245, "a": 96}, "width": 1}
+    },
+
+    "[name=simple-chat/selected]": {
+      "font": {"builtin": "mono", "size": 11, "bold": true, "aa": true},
+      "bg": {"asset": "themes/cyberpunk/button.png", "mode": "stretch"},
+      "border": {"asset": "themes/cyberpunk/panel.png", "slice": [4, 4, 4, 4], "mode": "stretch"}
+    },
+
+    "[name^=simple-chat/joint]": {"bg": {"color": {"r": 0, "g": 0, "b": 0, "a": 0}}},
+
+    "[name=simple-chat/sizer]": {"bg": {"asset": "themes/cyberpunk/sizer.png", "mode": "stretch"}}
   }
 }

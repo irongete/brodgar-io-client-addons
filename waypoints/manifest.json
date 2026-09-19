@@ -1,7 +1,7 @@
 {
   "id": "waypoints",
   "name": "Waypoints",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "irongete",
   "description": "Queue movement orders and see where your character is headed with an on-map visual indicator.",
   "api_version": "1.0",

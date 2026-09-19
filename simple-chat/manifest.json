@@ -5,6 +5,13 @@
   "author": "brodgar",
   "description": "Replaces the client's chat with a window whose channels are tabs across the top, dragged by its body and resized from the bottom-right corner. Its System tab is a console line.",
   "api_version": "1.0",
-  "files": ["main.lua"],
-  "permissions": ["chat.send", "console.run"]
+  "files": [
+    "layout.lua",
+    "clientchat.lua",
+    "tabs.lua",
+    "log.lua",
+    "window.lua",
+    "main.lua"
+  ],
+  "permissions": ["chat.send", "console.run", "widget.send"]
 }

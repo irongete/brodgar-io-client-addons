@@ -1,21 +1,21 @@
--- Simple Animal Radius -- a round patch laid on the ground under every animal in view.
+-- Object Radius Indicator -- a round patch laid on the ground under every object in view.
 --
 -- The circle is hafen.virtual():patch(): a convex ring lying flat on the terrain, so it follows a slope
--- with no float and no gap, and one anchored to a Gob moves with that animal and ends with it. There is no
+-- with no float and no gap, and one anchored to a Gob moves with that object and ends with it. There is no
 -- toggle key.
 --
--- HOW a circle looks is the page Options > AddOns > Simple Animal Radius -- the GENERAL look -- and any
--- animal on the list may carry a look of its own that overrides it, field by field. WHICH animals is the
--- list below plus whatever the user adds: the "Animals..." button on that page opens a window with one line
--- per name -- a checkbox, an Edit button for that animal's own look, an X to take it off the list -- and a
--- field to add a resource name. All of it lives in the account's savedata (hafen.store(), "animals").
+-- HOW a circle looks is the page Options > AddOns > Object Radius Indicator -- the GENERAL look -- and any
+-- object on the list may carry a look of its own that overrides it, field by field. WHICH objects is the
+-- list below plus whatever the user adds: the "Objects..." button on that page opens a window with one line
+-- per name -- a checkbox, an Edit button for that object's own look, an X to take it off the list -- and a
+-- field to add a resource name. All of it lives in the account's savedata (hafen.store(), "objects").
 
--- ---------------------------------------------------------------- THE BUILT-IN ANIMALS
+-- ---------------------------------------------------------------- THE BUILT-IN OBJECTS
 --
 -- Resource name SUFFIXES: a gob whose gob:name() ends with one of these wears a circle, so "/bear" takes
--- "gfx/kritter/bear/bear" whatever the folder. This is the aggressive set. Edit here; :reload picks it up.
+-- "gfx/kritter/bear/bear" whatever the folder. This is the starting set: the hostile creatures. Edit here; :reload picks it up.
 -- One the user deleted from the window stays deleted (store.removed) until it is added back by name.
-local ANIMALS = {
+local BUILTIN = {
   "/mammoth",
   "/bat",
   "/caverat",
@@ -65,7 +65,7 @@ local STEPS  = 24         -- points around the circle: a patch carries at most 3
 local BASE   = 100        -- the radius the ring is LAID at, in world units. A patch's ring cannot be changed
                           -- afterwards, so a radius is a :scale() against this rather than a re-lay.
 
--- The six fields a look has, with the bounds the general rows and the per-animal editor share.
+-- The six fields a look has, with the bounds the general rows and the per-object editor share.
 local RADIUS  = {1, 330}
 local PERCENT = {0, 100}
 local WIDTH   = {0, 200}
@@ -76,9 +76,9 @@ local WIDTH   = {0, 200}
 --   off[name]     = true    the name is on the list but unticked
 --   removed[name] = true    a built-in name the user took off the list
 --   custom        = {...}   the names the user added, in order
---   per[name]     = {radius=, fill=, opacity=, border=, width=, through=}   that animal's own look; a
+--   per[name]     = {radius=, fill=, opacity=, border=, width=, through=}   that object's own look; a
 --                           field left out reads the general row
-local store = hafen.store():var("animals")
+local store = hafen.store():var("objects")
 store.off     = store.off     or {}
 store.removed = store.removed or {}
 store.custom  = store.custom  or {}
@@ -136,7 +136,7 @@ end
 -- Every name on the list, built-in first and the user's after, in order.
 local function names()
   local all = {}
-  for _, n in ipairs(ANIMALS) do
+  for _, n in ipairs(BUILTIN) do
     if not store.removed[n] then all[#all + 1] = n end
   end
   for _, n in ipairs(store.custom) do all[#all + 1] = n end
@@ -190,9 +190,17 @@ end
 local laid = {}      -- [Gob] = {name = <resource when read>, key = <list entry it matched>, patch}
 local ticker         -- the re-read; nil exactly while the circles are off
 local warned = {}    -- [resource] = true once a refusal to lay it has been logged
+local shown          -- the Session whose world the circles stand in: the one on screen, once it is in the world
 
--- The ring: a circle of real places around the animal, laid at BASE. A patch keeps it as offsets from its
--- anchor, so it means the same shape wherever the animal walks to.
+-- A patch stands in the scene of the session ON SCREEN, whichever session's gob it is anchored to
+-- (hafen.virtual() has one scene). So only that session's gobs are worth reading, and only from its
+-- SessionEnteredWorld on: before it there is no scene and :add raises "there is no map view yet".
+local function onScreen(session)
+  return session and (session == hafen.session():current()) and (session:character() ~= nil)
+end
+
+-- The ring: a circle of real places around the object, laid at BASE. A patch keeps it as offsets from its
+-- anchor, so it means the same shape wherever the object walks to.
 local function ringOf(p)
   local ring = {}
   for i = 1, STEPS do
@@ -229,11 +237,11 @@ local function lay(g, name, key)
     laid[g] = {name = name, key = key, patch = patch}
   elseif not ok and not warned[name] then
     warned[name] = true
-    hafen.log():write("simple-animal-radius: cannot lay " .. name .. ": " .. tostring(patch))
+    hafen.log():write("object-radius-indicator: cannot lay " .. name .. ": " .. tostring(patch))
   end
 end
 
--- Re-read, never remembered: a gob keeps its id when its resource changes (a live animal becomes a
+-- Re-read, never remembered: a gob keeps its id when its resource changes (a live object becomes a
 -- carcass), and the list moves under it, so the name and the entry it matches together say whether the
 -- circle still belongs.
 local function consider(g)
@@ -249,11 +257,17 @@ local function consider(g)
 end
 
 local function sweep()
-  for _, s in ipairs(hafen.session():list()) do
-    if s:character() then
-      for _, g in ipairs(s:world():gob():list()) do consider(g) end
-    end
+  if not onScreen(shown) then return end
+  for _, g in ipairs(shown:world():gob():list()) do consider(g) end
+end
+
+-- Whether the session on screen is among the ones that see this gob -- the only one whose circle can be laid.
+local function seenHere(g)
+  if not shown then return false end
+  for _, s in ipairs(g:sessions():list()) do
+    if s == shown then return true end
   end
+  return false
 end
 
 -- ---------------------------------------------------------------- the cycle
@@ -261,13 +275,21 @@ end
 local function leave()
   if ticker then ticker:cancel() end
   ticker = nil
+  shown = nil
   local was = laid
   laid = {}
   for _, mine in pairs(was) do drop(mine) end
 end
 
+-- Starts the circles for the session on screen, if it is in the world; a call while they are already up
+-- takes them down first, so a character change on the same account (SessionEnteredWorld again, no
+-- SessionRemoved between) starts clean in the new world.
 local function enter()
+  if ticker then leave() end
   if not onOpt:value() then return end
+  local session = hafen.session():current()
+  if not onScreen(session) then return end
+  shown = session
   sweep()
   ticker = hafen.timer():every(RESCAN, sweep)
 end
@@ -281,16 +303,16 @@ local function redress(key)
   end
 end
 
--- The list moved: circles on animals no longer wanted come up, and wanted ones go down.
+-- The list moved: circles on objects no longer wanted come up, and wanted ones go down.
 local function relist()
   if ticker then sweep() end
 end
 
--- ---------------------------------------------------------------- the editor: one animal's own look
+-- ---------------------------------------------------------------- the editor: one object's own look
 --
 -- The same six fields the general rows carry, as this addon's own controls in a window titled with the
--- animal's name. It opens showing what that animal wears NOW -- its own field or the general one -- and
--- every move writes that animal's own field, so an animal that was never edited wears the general look
+-- object's name. It opens showing what that object wears NOW -- its own field or the general one -- and
+-- every move writes that object's own field, so an object that was never edited wears the general look
 -- and one that was keeps its own whatever the general rows do afterwards. "Use general look" drops the
 -- override and closes.
 local LABEL_W, CTRL_W, ROW_H = 120, 170, 26
@@ -406,7 +428,7 @@ local function remove(key)
   for i, n in ipairs(store.custom) do
     if n == key then table.remove(store.custom, i); break end
   end
-  for _, n in ipairs(ANIMALS) do
+  for _, n in ipairs(BUILTIN) do
     if n == key then store.removed[key] = true end
   end
   store.per[key] = nil
@@ -435,7 +457,7 @@ end
 
 local function openList()
   if win then return end
-  win = hafen.ui():window():title("Simple Animal Radius"):position(240, 160)
+  win = hafen.ui():window():title("Object Radius Indicator"):position(240, 160)
   list = hafen.ui():scroll():parent(win):position(0, 0):size(LIST_W, LIST_H)
   lines = {}
   for _, key in ipairs(names()) do addLine(key) end
@@ -470,14 +492,14 @@ local function openList()
   addBtn:on("Pressed", function() step(add) end)
 
   win:pack()
-  win:remember("animals")
+  win:remember("objects")
   win:on("Close", function() step(closeList) end)
 end
 
 -- ---------------------------------------------------------------- the page
 --
 -- An option draws nothing; what shows it is a control built here, on the column the client hands over each
--- time Options > AddOns > Simple Animal Radius is opened, and BOUND to it: a tick, a pick or a pull writes
+-- time Options > AddOns > Object Radius Indicator is opened, and BOUND to it: a tick, a pick or a pull writes
 -- the option, and the client keeps the value. The page is rebuilt on every visit, so nothing built here is
 -- kept -- which is why the list is a window of its own, opened from the button at the foot.
 --
@@ -497,10 +519,10 @@ end
 opts:panel(function(root)
   root:gap(4)
   hafen.ui():check():parent(root):text("Draw circles")
-    :tooltip("lay a circle on the ground under every animal on the list"):bind(onOpt)
+    :tooltip("lay a circle on the ground under every object on the list"):bind(onOpt)
   gauge(root, "Radius", radiusOpt,
-        "world units from the animal's centre to the rim; a tile is 11 of them, so 110 is ten tiles")
-  pick(root, "Fill colour", fillOpt, "the colour laid over the ground under the animal")
+        "world units from the object's centre to the rim; a tile is 11 of them, so 110 is ten tiles")
+  pick(root, "Fill colour", fillOpt, "the colour laid over the ground under the object")
   gauge(root, "Fill opacity", alphaOpt,
         "per cent: how much of the fill is there. 0 leaves the rim standing on bare ground")
   pick(root, "Border colour", edgeOpt,
@@ -512,10 +534,10 @@ opts:panel(function(root)
     :tooltip("on: hills, walls and trees in front of a circle stop hiding it, so one behind a house is " ..
              "drawn whole. off: the world may hide it, as it hides the ground it lies on")
     :bind(throughOpt)
-  local animals = hafen.ui():button():parent(root):size(120):text("Animals...")
-    :tooltip("the animals that wear a circle: tick and untick them, give one a look of its own, take one " ..
+  local objects = hafen.ui():button():parent(root):size(120):text("Objects...")
+    :tooltip("the objects that wear a circle: tick and untick them, give one a look of its own, take one " ..
              "off the list, or add a resource name of your own")
-  animals:on("Pressed", function() step(openList) end)
+  objects:on("Pressed", function() step(openList) end)
 end)
 
 -- ---------------------------------------------------------------- wiring
@@ -536,10 +558,10 @@ for _, f in ipairs(FIELDS) do
   f[2]:on("Changed", function() soon(function() redress(nil) end) end)
 end
 
--- GobAdded runs before the object's first drawn frame, so an animal arriving with its resource in hand is
--- circled from that frame rather than at the next sweep.
+-- GobAdded runs before the object's first drawn frame, so an object arriving with its resource in hand is
+-- circled from that frame rather than at the next sweep. One only another character sees is left alone.
 hafen.event():on("GobAdded", function(g)
-  if ticker then consider(g) end
+  if ticker and seenHere(g) then consider(g) end
 end)
 
 -- The patch went with it: one anchored to a Gob ends with that Gob, so only the entry goes.
@@ -547,5 +569,21 @@ hafen.event():on("GobRemoved", function(g)
   laid[g] = nil
 end)
 
--- On the step, because the sweep wants a world to read and this runs while the client is still coming up.
+-- The world comes and goes under the circles: they go up when the session on screen reaches the world,
+-- and again when the screen moves to another character (the old ones stood in the old scene), and come
+-- down when that session ends. A session reaching the world in the background is ignored until the
+-- screen goes there.
+hafen.event():on("SessionEnteredWorld", function(session)
+  if session == hafen.session():current() then step(enter) end
+end)
+
+hafen.event():on("SessionSelected", function()
+  step(enter)
+end)
+
+hafen.event():on("SessionRemoved", function(session)
+  if session == shown then step(leave) end
+end)
+
+-- On the step, for a load or :reload while a character is already in the world: no event announces that.
 step(enter)

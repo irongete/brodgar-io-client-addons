@@ -1,9 +1,9 @@
 {
-  "id": "simple-animal-radius",
-  "name": "Simple Animal Radius",
+  "id": "object-radius-indicator",
+  "name": "Object Radius Indicator",
   "version": "0.1.0",
   "author": "irongete",
-  "description": "A round patch laid on the ground under every aggressive animal in view, following it as it moves. Options > AddOns > Simple Animal Radius sets the radius, the fill's colour and opacity, the border's colour and thickness, and whether the world may hide the circle; its Animals... row opens the list, where each animal is ticked or unticked and a resource name of your own is added. The list and every row are remembered.",
+  "description": "A round patch laid on the ground under every object on its list that is in view, following it as it moves. Options > AddOns > Object Radius Indicator sets the radius, the fill's colour and opacity, the border's colour and thickness, and whether the world may hide the circle; its Objects... row opens the list, where each object is ticked or unticked and a resource name of your own is added. The list and every row are remembered.",
   "api_version": "1.0",
   "files": [
     "main.lua"

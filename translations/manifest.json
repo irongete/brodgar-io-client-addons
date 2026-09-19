@@ -3,7 +3,7 @@
   "name": "Translations",
   "version": "1.0.1",
   "author": "irongete",
-  "description": "Translates the client: pick a language in Options > AddOns > Translations. And collaborate on new translations: turn the helper on and the translator window collects every string the language does not name yet, so you translate them one by one, see each one on screen the moment it is saved, and export the language as a JSON file.",
+  "description": "Translates the client: pick a language in Options > AddOns > Translations. And collaborate on new translations: turn the helper on and the translator window collects every string the language does not name yet, so you translate them one by one and see each one on screen the moment it is saved.",
   "api_version": "1.0",
-  "files": ["regex.lua", "main.lua"]
+  "files": ["config.lua", "regex.lua", "store.lua", "options.lua", "catalogue.lua", "rows.lua", "languages.lua", "window.lua", "main.lua"]
 }

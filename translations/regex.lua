@@ -1,15 +1,17 @@
--- regex.lua -- a matcher for the patterns a catalogue carries, so the list can tell which of its strings a
--- pattern answers. The client applies a pattern as Java does; this only decides what leaves the list.
--- Whole-string match, captures by number. It reads what a translation pattern is made of:
---   literals and escapes (\. \( \\ ...), \d \w \s and their negations, . (a newline only under (?s)),
---   classes [a-z] [^0-9] with escapes inside, groups ( ) and (?: ), alternation |, the quantifiers
---   * + ? {n} {n,} {n,m} and their lazy forms, the anchors ^ $, and the flags (?s) (?i).
--- Anything else -- a lookaround, a backreference, \p{..}, a possessive quantifier -- does not compile,
--- and a row such a pattern answers stays in the list until the client redraws it.
--- It walks the subject one byte at a time, not one character: a non-ASCII letter is two to four bytes, so
--- `.` alone or {n} count differently from Java on such text; .* .+ and the classes do not.
+-- A backtracking matcher for the subset of Java regex a translation pattern uses, so the list can tell
+-- which of its rows a pattern answers. The client applies the real pattern; this only decides what leaves
+-- the list. Whole-string match, captures by number.
+--
+-- Read: literals and escapes (\. \( \\ ...), \d \w \s and their negations, . (a newline only under (?s)),
+-- classes [a-z] [^0-9] with escapes inside, groups ( ) and (?: ), alternation |, the quantifiers
+-- * + ? {n} {n,} {n,m} and their lazy forms, the anchors ^ $, and the flags (?s) (?i).
+-- Not read: lookarounds, backreferences, \p{..}, possessive quantifiers. Regex.compile answers nil for
+-- those, and a row such a pattern answers stays in the list until the client redraws it.
+-- The subject is walked one byte at a time: `.` alone or {n} count differently from Java on non-ASCII
+-- text; .* .+ and the classes do not.
 
-regex = {}
+local Regex = {}
+Translations.Regex = Regex
 
 local STEP_BUDGET = 5000 -- node visits per match: a pathological pattern gives up, never stalls
 
@@ -251,7 +253,7 @@ local function parse(source)
 end
 
 --- Compile a Java regular expression, or nil where it uses something this matcher does not read.
-function regex.compile(source)
+function Regex.compile(source)
     local ok, program = pcall(parse, source)
     if ok then
         return program
@@ -266,7 +268,7 @@ end
 -- repetition that fails further on is simply tried the next way.
 
 --- Match the whole of subject. Returns the captures by group number (an empty table for none), or nil.
-function regex.matches(program, subject)
+function Regex.matches(program, subject)
     local flags = program.flags
     local length = #subject
     local steps = 0
@@ -377,6 +379,6 @@ function regex.matches(program, subject)
 end
 
 --- The string as a regular expression that matches exactly itself: Java's special characters escaped.
-function regex.quote(text)
+function Regex.quote(text)
     return (string.gsub(text, "[\\%^%$%.%|%?%*%+%(%)%[%]%{%}]", "\\%0"))
 end

@@ -1,136 +1,72 @@
 # Translations
 
-Displays the client in the language you pick, and helps you write that language: with the **translation
-helper** on, every string the language does not name yet is collected while you play, the **translator**
-window is where you translate them one at a time — each one on screen the moment it is saved — and
-**Export** prints the language as the JSON document
-[`hafen.locale():load(doc)`](https://github.com/irongete/brodgar-io-client/blob/HEAD/docs/addons/api/locale.md)
-takes, ready to ship as `<language>.json`.
+Shows the client in another language, and lets you build that language yourself while you play.
 
-## Pick the language
+## Choosing a language
 
-**Options ▸ AddOns ▸ Translations ▸ Language.** `English` is the client's own words; any other row is a
-language kept in the addon's file, installed the moment it is picked. The pick survives reloads and
-restarts.
+Options ▸ AddOns ▸ Translations ▸ **Language**. `English` is the client's own text. Any other entry is a
+language created with this addon. The choice is remembered between sessions.
 
-## The helper
+## Creating a translation
 
-Off by default. Tick **Translation helper** on the same page and **Open the translator** comes alive — so
-does `:translator`, and the `translator` key once you assign one in Options ▸ Game ▸ Keybindings ▸
-Translations. With the helper off nothing is collected and the window cannot be opened.
+1. In Options ▸ AddOns ▸ Translations, tick **Translation helper** and press **Open the translator**.
+2. In the translator window, type a name in **New language** (for example `es`) and press **Add**.
+3. Play. Every text the client shows that your language does not translate yet appears in the list, with
+   the place it was shown in: `[button] Cancel`, `[window.title] Inventory`, `[tooltip] Quality: 23`. Open
+   the windows you want to translate, hover over items, right-click for menus.
+4. Click a row, type the translation in the text field and press Enter. The text changes on screen right
+   away, and the next row is selected.
 
-1. **Pick a language**, in the window or on the options page. Its catalogue is installed: the client
-   displays what the language names, and everything it does not name is drawn in English and **recorded**.
-2. **Play.** Every string a routed surface draws — a button, a window title, a menu petal, a tooltip row, a
-   system line — lands in the list once, keyed by the surface it reached and spelt exactly as the client
-   offered it. Open the windows you mean to translate, hover the items, right-click for the menus.
-3. **Translate.** Pick a row: the surface and the English are shown, and the entry holds the English to
-   edit. Type the translation and press **Enter** (or **Save**): the catalogue is reloaded on the spot, the
-   string re-renders in your words wherever it is on screen, the row leaves *Pending*, and the next one is
-   picked so you can go on typing.
-4. **Check it live.** Switch the language in the dropdown and the whole client follows — every saved entry
-   of that language in force, everything else in English.
+Translations are saved as you go. The list of pending text is not: after a restart or a `:reload` it fills
+up again as you play.
 
-The rows are `[surface] text`. **Show** picks the view — *Pending* (seen, and nothing answers it),
-*Translated* (everything the language answers: its entries and its patterns, seen this session or not),
-*Ignored*, *All* — and **Filter** narrows any view on a fragment of the row. The list holds the first 500
-matches; the status line says when to narrow.
+## The translator window
 
-**The edit line shows what the catalogue says for the picked row**: an exact entry (Match empty, the entry
-holding the translation), a pattern (Match holding its match, the entry its text), or nothing yet (Match
-empty, the entry holding the English). **Save** writes what the line shows — Enter in either field — and
-**Delete** removes it; a string still being drawn goes back to *Pending*. An empty **Save** changes nothing.
+| Control | What it does |
+|---|---|
+| **Language** | The language you are viewing and editing. Same as the option. |
+| **Show** | Which rows to list: **Pending** (not translated yet), **Translated**, **Ignored** or **All**. |
+| **Filter** | Only rows containing this text. |
+| **New language** / **Add** | Create a language. |
+| **Delete language** | Delete the current language with all its translations. Asks for confirmation. |
+| **Match** | Regular expression for a pattern (see below). Empty for a normal translation. |
+| **Pattern** | Fill **Match** with the selected text, ready to turn into a pattern. |
+| **Save** (or Enter) | Save the translation of the selected row. |
+| **Delete** | Remove the translation of the selected row. The text goes back to English. |
+| **Ignore** / **Restore** | Hide a row you do not want to translate, until the next restart or `:reload`. |
 
-**Ignore** puts a string aside — a line carrying a player's name, a row carrying a number, anything not
-worth an entry — and **Restore** (the same button, on an ignored row) brings it back. Ignoring hides for
-the session; it never deletes.
+The list shows up to 500 rows. Use the filter if there are more.
 
-### Languages
+## Patterns
 
-**New language** + **Add** (or Enter) creates a language under the name you typed — `es`, `pt-BR`,
-`Español`, whatever you want the file called — and picks it, empty. A blank, a repeat (whatever the case)
-and `English` are refused. **Delete language** asks first, in a window titled with the language: **Delete**
-removes the language and **every translation it holds**, entries and patterns alike, and the client's own
-words come back; **Keep** closes the window and changes nothing.
+Some texts contain a name or a number that changes every time (`Alistar is now online.`, `Quality: 23`).
+A normal translation only matches one exact text, so use a pattern instead:
 
-### Patterns
+1. Select the row and press **Pattern**. **Match** is filled with the text, with special characters
+   escaped: `Alistar is now online\.`
+2. Replace the part that changes with a group: `(.*)` for anything, `(\d+)` for a number, `(\w+)` for one
+   word: `(.*) is now online\.`
+3. Write the translation with `%1$s` where the first group goes (`%2$s` for the second, in any order):
+   `%1$s se ha conectado.` Press Enter.
 
-A line with a name or a number in it is a different string every time — `Alistar is now online.`,
-`Quality: 23` — so no exact entry can name it, and a **pattern** names its shape instead:
+The pattern must match the whole text. Patterns are Java regular expressions. They are listed in the
+**Translated** and **All** views as `[chat.system] /(.*) is now online\./`; select one to edit or delete it.
+If the client rejects a pattern (an unclosed parenthesis, a `%2$s` with only one group), nothing is saved
+and the status line at the bottom says why.
 
-1. Pick one of the rows and press **Pattern**: Match holds the English with every special character
-   escaped — `Alistar is now online\.`.
-2. Replace the part that varies with a **group**: `(.*)` anything, `(\d+)` a number, `(\w+)` one word,
-   `(a|b)` one of two — `(.*) is now online\.`. The pattern has to match the **whole** string.
-3. Write the translation in the entry with `%1$s` where the first group goes (`%2$s` the second, in any
-   order your language wants): `%1$s se ha conectado.` Enter.
+## Where translations are stored
 
-Every pending row the pattern answers leaves *Pending* on the spot, and a line with another name in it
-never enters the list. The pattern has a row of its own in *Translated* and *All* — `[chat.system] /(.*) is
-now online\./` — and picking a string it answers shows it too: Save there edits the pattern in place,
-Delete removes it. A match the client cannot read (an unclosed `(`, a `%2$s` with one group) is refused on
-the spot: nothing is written and the status line says why.
+In `savedata/translations/translations.sqlite`, next to the client. To ship a language as an addon of its
+own, see the client's [translating guide](https://github.com/irongete/brodgar-io-client/blob/HEAD/docs/addons/guides/translating.md).
 
-Patterns are Java regular expressions, resolved after every exact entry has missed and **in the order they
-were written** — the first that matches answers. The list reads the usual regex on its own to decide what
-leaves it (escapes, `.`, classes, groups, alternation, the quantifiers and their lazy forms, `(?s)` and
-`(?i)`); a construction it does not read — a lookaround, a backreference — still works in the client, but
-the rows it answers stay in the list this session.
+## Good to know
 
-### Export
-
-**Export** prints the picked language as one line on the terminal the client was started from:
-
-```text
-[translations] es.json = {"text":{"button":{"Cancel":"Cancelar"}},"pattern":[{"surface":"tooltip","match":"Quality: (\\d+)","text":"Calidad: %1$s"}]}
-```
-
-What follows `es.json = ` is exactly the content of `es.json`: `text` keyed by surface and then by the
-string the client would have drawn, `pattern` the ordered list, absent while there is none. The addon that
-ships it is the whole of this:
-
-```lua
-local doc = hafen.json():parse(hafen.asset():get("es.json"):text())
-hafen.locale():load(doc):install()
-```
-
-The in-game console clips the line at 500 characters; the terminal always has the whole of it.
-
-## The file
-
-Everything is in **`savedata/translations/translations.sqlite`**, written by the client: `languages` (one
-row per language), `entries` (language, surface, source, translation) and `patterns` (language, position,
-surface, match, text). A translation is in the file the moment it is saved. Nothing the list collected is in
-it: the strings are held for the session, a `:reload` or a restart starts the list again from what the
-client draws next, and a string put aside with *Ignore* is put aside until then. The list is shared by
-every language while it lasts — a string collected while `es` was up is pending in `ru` too, until `ru`
-names it.
-
-## Options and keys
-
-- Options ▸ AddOns ▸ Translations — **Language**, the **Translation helper** tick and **Open the translator**.
-- `:translator` opens and closes the window; it comes back where you left it, and open if it was open.
-- **translator** — the same, on a key. Suggested key: **Ctrl+T** — assign it in Options ▸ Game ▸
-  Keybindings ▸ Translations.
-
-## Notes
-
-- **The addon's own text is never listed.** The window and the options page are drawn by the same client
-  they watch, so their captions reach the catalogue like any other label: the fixed ones — *Language*,
-  *Show*, *Filter*, *Match*, *Pattern*, *Save*, *Delete*, *Ignore*, *Restore*, *Add*, *Delete language*,
-  *Export*, *Keep*, the view names, *Translator*, the language names — are skipped when collecting, and
-  the rows, the source line and the status line, which change all the time, are named by their shape in
-  the installed catalogue so they never miss at all. The one cost: a game string that is exactly one of
-  those captions at the same surface is skipped too — write it into the file by hand.
-- **Two catalogues stack, and the top one answers first.** While another addon's catalogue is installed
-  above this one, a string it names never reaches the helper, as a translation or as a miss. Collect with
-  this addon alone.
-- A **tooltip row and a chat line are recorded as their marked-up source** (`$col[...]{...}`, `$b{...}`), not
-  as the words drawn, because that is the string an entry has to spell. Translate inside the markup and
-  leave the markup as it is.
-- **What you type is what the entry takes.** Cyrillic needs the layout switched; Chinese needs the system
-  IME to reach the client's window. The text drawn on screen is only as good as the font the client has for
-  it: a face without the glyphs draws boxes, and a [theme](../themes/README.md) is where a face with them is
-  installed.
-- The catalogue changes what you **see** and nothing else: `w:text()`, a petal's name and everything an
-  addon reads still answer the client's English, so the other addons keep working while a language is up.
+- Text written by players (chat, names, speech bubbles) is never translated or listed.
+- Tooltip rows and chat lines are listed with their formatting codes (`$col[...]{...}`, `$b{...}`). Keep the
+  codes and translate the words inside them.
+- Translating only changes what you see. Other addons keep reading the client's English text, so they keep
+  working.
+- If another translation addon is active at the same time, some texts may not appear in this list. Collect
+  with this addon alone.
+- The client needs a font with the characters of your language. A [theme](../themes/README.md) can provide
+  one.

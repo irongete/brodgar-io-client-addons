@@ -1,7 +1,7 @@
 {
   "name": "WidgetStack",
   "id": "widgetstack",
-  "version": "0.9.10",
+  "version": "0.9.11",
   "author": "irongete",
   "description": "Developer tool: shows the widgets under the cursor, a treeview of every widget on screen, and the selectors that reach them.",
   "api_version": "1.0",

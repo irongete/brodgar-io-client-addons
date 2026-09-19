@@ -1,60 +1,38 @@
--- Themes -- a whole client look, loaded from a file rather than written in Lua.
---
--- Every value a stylesheet rule takes has a spelling a file can carry: a colour is a table of numbers, a
--- face is named rather than handed over, a picture is named by its resource or by a path inside this
--- folder. So a theme needs no Lua at all -- it is a JSON document, and this addon is the two lines that
--- read one and install it:
---
---     local doc = hafen.json():parse(hafen.asset():get("themes/x.json"):text())
---     hafen.ui():sheet():load(doc.rules):install()
---
--- What is left over is bookkeeping: which files there are, which one is on, and remembering that across
--- a restart. The sheet itself is owned by this addon, so `:reload`, disabling it or `:theme off` puts the
--- client's own look back to the pixel.
+-- Themes: reads the JSON themes under themes/, offers them as one client option and installs the chosen
+-- one as this addon's stylesheet. Disabling the addon drops the sheet and restores the client's own look.
 
--- ------------------------------------------------------------------ where the themes are
---
--- hafen.asset() loads a file by path and interns it; it does not enumerate a folder, and there is no verb
--- anywhere in the API that reads a directory -- an addon reads its own files, it does not browse them. So
--- the folder carries its own index, and adding a theme is two edits: drop the .json in, name it in
--- index.json. That is also what makes the order the list comes out in the author's rather than the
--- filesystem's.
+-- hafen.asset() loads a file by path and cannot list a folder, so themes/index.json names the theme files.
 local FOLDER = "themes/"
 local INDEX  = FOLDER .. "index.json"
 
--- The word that gives the look back instead of naming a theme. A file that would claim it is skipped: the
--- release has to stay reachable, or a broken theme could only be undone by editing files.
-local RELEASE = "off"
-
--- The theme the option starts on: default.json, the client's own look written out key by key.
+-- The option's default: default.json, the client's own look.
 local DEFAULT = "default"
 
--- ------------------------------------------------------------------ state
+local themes = {}    -- name -> { name, file, title, rules }
+local order  = {}    -- theme names, in index.json's order
 
-local themes  = {}    -- name -> { name, file, title, description, rules }
-local order   = {}    -- the names, in the index's own order
-local active  = nil   -- the name installed by this addon, or nil for the client's own look
+local options     = hafen.client():options():addon()
+local themeOption = nil  -- the choice option, declared once the folder has been read
 
--- ------------------------------------------------------------------ reading the folder
-
-local function read(path)
-  local ok, res = pcall(function() return hafen.json():parse(hafen.asset():get(path):text()) end)
-  if not ok then return nil, tostring(res) end
-  if type(res) ~= "table" then return nil, "the document is not an object" end
-  return res
+-- Parses a JSON file of this addon into a table. Returns nil and a reason on failure.
+local function readDocument(path)
+  local parsed, result = pcall(function() return hafen.json():parse(hafen.asset():get(path):text()) end)
+  if not parsed then return nil, tostring(result) end
+  if type(result) ~= "table" then return nil, "the document is not an object" end
+  return result
 end
 
--- The name a theme is typed by is its FILE, minus the extension -- so what the user types is what is on
--- disk, and two themes cannot collide over a `name` field either of them is free to write.
+-- A theme is named by its file, lower-cased and without the .json extension.
 local function nameOf(file)
   return (string.gsub(string.lower(file), "%.json$", ""))
 end
 
-local function load()
+-- Reads index.json and every theme it names into `themes` and `order`.
+local function loadThemes()
   themes, order = {}, {}
-  local index, err = read(INDEX)
+  local index, indexError = readDocument(INDEX)
   if index == nil then
-    hafen.log():write("themes: cannot read " .. INDEX .. " -- " .. err)
+    hafen.log():write("themes: cannot read " .. INDEX .. " -- " .. indexError)
     return
   end
   local files = index.themes
@@ -63,30 +41,26 @@ local function load()
       .. ' { "themes": ["default.json"] }, an array of the files in this folder')
     return
   end
-  for i = 1, #files do
-    local file = files[i]
+  for position = 1, #files do
+    local file = files[position]
     local name = (type(file) == "string") and nameOf(file) or nil
     if name == nil then
-      hafen.log():write("themes: " .. INDEX .. "[" .. i .. "] is not a file name")
-    elseif name == RELEASE then
-      hafen.log():write('themes: "' .. file .. '" is skipped -- ":theme ' .. RELEASE
-        .. '" is how the client\'s own look is given back, so a theme cannot be called that')
+      hafen.log():write("themes: " .. INDEX .. "[" .. position .. "] is not a file name")
     elseif themes[name] ~= nil then
       hafen.log():write('themes: "' .. file .. '" is skipped -- "' .. name .. '" is already loaded')
     else
-      local doc, derr = read(FOLDER .. file)
-      if doc == nil then
-        hafen.log():write('themes: "' .. file .. '" did not load -- ' .. derr)
-      elseif type(doc.rules) ~= "table" then
+      local document, documentError = readDocument(FOLDER .. file)
+      if document == nil then
+        hafen.log():write('themes: "' .. file .. '" did not load -- ' .. documentError)
+      elseif type(document.rules) ~= "table" then
         hafen.log():write('themes: "' .. file .. '" carries no "rules" object -- a theme is'
           .. ' { "name": …, "rules": { "<selector>": { <property>: <value> } } }')
       else
         themes[name] = {
-          name        = name,
-          file        = file,
-          title       = (type(doc.name) == "string") and doc.name or name,
-          description = (type(doc.description) == "string") and doc.description or nil,
-          rules       = doc.rules,
+          name  = name,
+          file  = file,
+          title = (type(document.name) == "string") and document.name or name,
+          rules = document.rules,
         }
         order[#order + 1] = name
       end
@@ -94,143 +68,63 @@ local function load()
   end
 end
 
--- ------------------------------------------------------------------ installing one
---
--- An addon owns exactly one sheet, so `:load` replaces what it said and `:install()` is the moment it
--- becomes what the client looks like. A rule this theme does not name falls back on the spot, which is why
--- switching themes needs no undo step: the second install is the whole of it.
-
-local function install(name)
-  local t = themes[name]
-  if t == nil then return false, 'no theme called "' .. name .. '"' end
-  local ok, err = pcall(function() hafen.ui():sheet():load(t.rules):install() end)
-  if not ok then
-    -- A refused rule leaves the sheet holding half a theme, and half a theme is not a look anyone asked
-    -- for. Give it back rather than leaving the client wearing it.
+-- Loads a theme's rules into this addon's sheet and installs it. A theme the sheet refuses is released
+-- again, so the client never wears a partially loaded theme.
+local function installTheme(name)
+  local theme = themes[name]
+  if theme == nil then return false, 'no theme called "' .. name .. '"' end
+  local installed, failure = pcall(function() hafen.ui():sheet():load(theme.rules):install() end)
+  if not installed then
     pcall(function() hafen.ui():sheet():release() end)
-    active = nil
-    return false, tostring(err)
+    return false, tostring(failure)
   end
-  active = name
   return true
 end
 
-local function release()
-  hafen.ui():sheet():release()
-  active = nil
+-- Installing a sheet touches every character's widget tree, and a pick on the Options page arrives inside
+-- another tree's handler; the work is deferred to the next tick, where no tree is held (api/threading.md).
+local function deferred(action)
+  hafen.timer():after(0, action)
 end
 
--- ------------------------------------------------------------------ the option that says which
---
--- THE LOOK IS A SETTING, so it is declared where the client keeps settings: one choice option, holding
--- "off" and every theme the folder turned out to carry. It is declared from `Load` rather than in the file
--- body, because what it offers is what the index named and that is not known until the folder has been
--- read -- an option may be declared at any point in an addon's life.
---
--- THE OPTION IS ALSO THE ANSWER. The command below writes it instead of installing anything itself, so
--- there is one path into a theme and one place the theme in force lives. A theme the folder no longer
--- carries is simply not among the choices, and the client falls back to the option's default, which is
--- "default".
-
-local opts = hafen.client():options():addon()
-local row      -- the choice, once the folder has been read
-
--- THE STEP, AND NOT THE PICK. Installing a sheet sweeps every character's widget tree, and a pick on the
--- page is answered inside the tree of whatever put the Options window up -- a second tree, which no
--- handler may take while it holds one (api/threading.md).
-local function step(fn)
-  hafen.timer():after(0, fn)
-end
-
--- What a pick means, whichever door made it. It is the one place a theme goes on or comes off.
+-- Installs the theme an option value names and reports the outcome.
 local function wear(name)
-  if name == RELEASE then
-    release()
-    hafen.log():write("themes: released -- the client's own look, to the pixel")
-    return
-  end
-  local ok, err = install(name)
-  if ok then
+  local installed, failure = installTheme(name)
+  if installed then
     hafen.log():write('themes: "' .. themes[name].title .. '" installed')
   else
-    hafen.log():write('themes: "' .. name .. '" did not install -- ' .. err)
+    hafen.log():write('themes: "' .. name .. '" did not install -- ' .. failure)
   end
 end
 
-local function declare()
-  local choices = {RELEASE}
-  for i = 1, #order do choices[i + 1] = order[i] end
+-- Declares the "theme" choice option over every loaded theme, in index order. The option is the only place
+-- the chosen theme is kept; every change goes through its Changed event. With no theme loaded there is no
+-- option, and the panel says so.
+local function declareOption()
+  if #order == 0 then return end
+  local default = (themes[DEFAULT] ~= nil) and DEFAULT or order[1]
+  themeOption = options:choice("theme"):choices(order):default(default):add()
 
-  row = opts:choice("theme"):choices(choices):default(DEFAULT):add()
-
-  row:on("Changed", function(name) step(function() wear(name) end) end)
+  themeOption:on("Changed", function(name) deferred(function() wear(name) end) end)
 end
 
--- THE PAGE: Options > AddOns > Themes. An option draws nothing; what shows it is a dropdown built here, on
--- the column the client hands over each time the page is opened, and BOUND to the option -- a pick writes
--- it, and `:theme <name>` at the console moves the dropdown, both being the one value. The page is rebuilt
--- on every visit, so it is written from what stands at that moment: a folder that failed to read has no
--- option to show, and says so.
-opts:panel(function(root)
+-- Options > AddOns > Themes: a dropdown bound to the option. The panel is rebuilt on every visit.
+options:panel(function(root)
   root:gap(4)
-  if row == nil then
+  if themeOption == nil then
     hafen.ui():label():parent(root):text("no theme loaded -- see " .. INDEX)
     return
   end
   hafen.ui():label():parent(root):text("Theme")
   hafen.ui():dropdown():parent(root):size(160)
-    :tooltip('the look the client wears -- "' .. RELEASE .. '" is the client\'s own, to the pixel')
-    :bind(row)
+    :tooltip('the look the client wears -- "' .. DEFAULT .. '" is the client\'s own')
+    :bind(themeOption)
 end)
 
--- ------------------------------------------------------------------ the command
-
-local function list()
-  if #order == 0 then
-    hafen.log():write("themes: no theme loaded -- see " .. INDEX)
-    return
-  end
-  hafen.log():write("themes: " .. #order .. " in " .. FOLDER)
-  for i = 1, #order do
-    local t = themes[order[i]]
-    -- Padded by hand: LuaJ's string.format honours the conversion and not the WIDTH, so "%-14s" comes
-    -- out as plain "%s" and the column it was written for is not there.
-    local pad = t.name .. string.rep(" ", math.max(1, 14 - #t.name))
-    hafen.log():write("  " .. ((active == t.name) and "*" or " ") .. " " .. pad
-                      .. (t.description or t.title))
-  end
-  hafen.log():write("  :theme <name> installs one, :theme " .. RELEASE
-    .. " gives the client's own look back")
-end
-
-hafen.console():on("theme", function(args)
-  local want = args[1]
-  if (want == nil) or (row == nil) then return list() end
-
-  local name = string.lower(want)
-  if (name ~= RELEASE) and (themes[name] == nil) then
-    hafen.log():write('themes: no theme called "' .. name .. '"')
-    list()
-    return
-  end
-  -- THE OPTION IS THE SETTING, so this moves it and the change above does the rest. Writing the value it
-  -- already holds is not a change and fires nothing, so what is on is said here rather than in silence.
-  if row:value() == name then
-    hafen.log():write('themes: "' .. name .. '" is already what is on')
-    return
-  end
-  row:value(name)
-end)
-
--- ------------------------------------------------------------------ start
---
--- The files are read once every `Load` -- which is every `:reload` too, so editing a theme and reloading is
--- the whole edit loop. The option is declared from what they turned out to hold, and what it holds is put
--- back on: a sheet lives as long as the addon does, so it has to be said again after a reload.
-
+-- Runs on every load, :reload included: the sheet does not outlive the addon, so the chosen theme is
+-- installed again from the option's value.
 hafen.event():on("Load", function()
-  load()
-  declare()
-  local want = row:value()
-  if want ~= RELEASE then wear(want) end
+  loadThemes()
+  declareOption()
+  if themeOption ~= nil then wear(themeOption:value()) end
 end)

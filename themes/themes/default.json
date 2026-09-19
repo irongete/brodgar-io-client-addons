@@ -2,7 +2,7 @@
   "name": "Default",
   "author": "brodgar",
   "description": "This client's own look, key by key and property by property. Installing it changes nothing -- it is the sheet you edit a theme of your own out of.",
-  "about": "Every site key the client draws at (34 of them), in the order docs/addons/api/ui/style/keys.md lists them, and under each one EVERY property that key honours. A value is what the client itself draws with; null means the client sets none here -- write yours in its place. A null property is absent as far as the client is concerned (JSON null parses to nil, and a nil property is a property the rule does not name), so this file installs as the client's own look exactly, at EVERY interface scale: no value in it is a length or an offset, those being the ones a rule counts in design pixels while the client's own constant is device pixels -- see the README for the five that are null for that reason. Distances would be design pixels and colour components are 0..255. Properties a key IGNORES are left out rather than written null: keys.md's tables say which those are per key. The three layout properties are under treeKeys below, not here -- a site key carrying one is an error.",
+  "about": "Every site key with every property it honours: the client's own value where the client sets one, null where it does not. Copy it to start a theme.",
   "rules": {
     "*": {
       "font": {"builtin": "sans", "size": 10, "aa": false},

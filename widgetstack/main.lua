@@ -48,10 +48,9 @@
 -- sits still. Widget objects are INTERNED, so two lookups of the same live widget are the SAME value and
 -- `==` IS the identity test -- :same() is gone with the collapse.
 --
--- AND NOTHING RUNS WHILE THE WINDOW IS CLOSED. The poll is the window's OWN Update (see open()), so it
--- fires while the window stands and not once after it has gone -- the X and :widgetstack both destroy the
--- window, and the subscription goes with it -- and the outline overlay is added when the window opens and
--- removed when it closes. A closed widgetstack costs nothing a frame: no poll, no guard, no painter.
+-- AND NOTHING RUNS WHILE THE WINDOW IS HIDDEN. The poll is the window's OWN Update (see open()), and it
+-- steps over a hidden window -- the X and :widgetstack both hide it -- while the outline overlay draws
+-- nothing for one. A hidden widgetstack costs one visible() read a frame: no poll, no guard, no painter.
 --
 -- THE INSPECTOR: the stack rows are CLICKABLE -- click one and a new "Inspector" window opens with that
 -- widget's type/id/pos/size/rootpos/visible/text + role/res + its selector + its parent link + its child
@@ -69,11 +68,21 @@
 -- ITSELF, driven off ONE table in ONE fixed order (see READS) so the hover panel and every Inspector window
 -- print the same lines in the same places. A line appears only where the read answered something, so what
 -- you are looking at is what the widget HAS -- see describe().
+--
+-- THE WINDOW RESIZES from the client's own corner grip (window:resizable(true)): the tree column keeps its
+-- width and takes the height in rows, the stack's part takes the rest of the width and the read block the
+-- rest of the height. Nothing here is a child widget -- the window is one canvas -- so the layout is a few
+-- numbers derived from the content box, recomputed by Draw the frame the box moved (see layout), and the
+-- click maps read the same numbers. widget:remember keeps the place and the size.
+--
+-- THE X HIDES, IT DOES NOT DESTROY: the Close handler cancels the client's destroy and hides the window, so
+-- the tree's expansion, its pick and its scroll survive a close, and :widgetstack shows it again. A hidden
+-- window costs nothing a frame: the poll and the tree's beat step over it, the outline overlay draws nothing,
+-- and the tree's subscriptions are dropped until it shows again.
 
 hafen.log():write("widgetstack loaded")
 
-local win                 -- the floating stack window while it stands: open() builds it, the X or :widgetstack destroys it
-local place               -- { x=, y= } where the window stood when it was last closed, so the next open() puts it back there
+local win                 -- the floating stack window: open() builds it once, the X hides it, :widgetstack toggles it
 local last                -- the Widget object we last built the stack for (the guard's memory)
 local rows = {}           -- the current stack, LEAF-FIRST: { {node,type,id,text,w,h}, ... }
 local insp                -- the selector report for the hovered leaf (see selectorsFor)
@@ -87,11 +96,26 @@ local frozen = false      -- the "freeze" hotkey: hold the stack still so you ca
 
 local LINE = 14                     -- row height, shared by every list here
 local TREE_W = 340                  -- the tree column, the left-hand part of the window
-local STACK_W = 580                 -- the stack's part beside it (049.4: a chain candidate is a long line)
+local STACK_W = 580                 -- the stack's part beside it at the stock size (049.4: a chain candidate is a long line)
 local STACK_X0 = TREE_W             -- where the stack's part starts: every x of its draw is offset by this
-local WIN_W, WIN_H = TREE_W + STACK_W, 574   -- 063.4: the height is the read block's
+local WIN_W, WIN_H = TREE_W + STACK_W, 574   -- the stock size; the grip changes it and remember() keeps it
+local MIN_WIN_W = TREE_W + 300      -- the stack's part below this folds its count column into its selectors
+local MIN_WIN_H = 474               -- the read block keeps one line and its footer
 local STACK_Y0 = 22                 -- first stack row y (shared by draw + click hit-test)
 local STACK_MAXROWS = 11            -- stack rows that fit above the selector panel
+
+-- The live layout: what the content box is, and what follows from it. Every row count and every width the
+-- draw and the click maps share is here, so a resize moves them together. layout(w, h) is the one writer.
+local content_width, content_height = WIN_W, WIN_H
+local stack_width = STACK_W         -- the stack's part: everything right of the tree column
+local stack_scale = 1               -- stack_width over the stock STACK_W: what the character caps grow by
+local tree_max_rows = 0             -- tree rows that fit above the footer line
+local read_max_rows = 0             -- read-block lines that fit above the footer line
+
+-- A character cap written for the stock width, grown with the stack's part: the stock look at the stock size.
+local function stack_characters(stock_characters)
+  return math.max(12, math.floor(stock_characters * stack_scale))
+end
 
 -- ============================================================== the selector inspector (030.3), shared by
 -- the hover panel and each Inspector window. Pure Lua over w:role()/:type()/:res() + s:ui():matchAll().
@@ -427,18 +451,19 @@ end
 
 -- The block, drawn identically in both windows: a divider, a header that says how many lines there are (or
 -- that there are none), the lines, and the count of any it had to clip.
-local function drawReads(g, x0, width, lines, headY, rowY)
+local function drawReads(g, x0, width, lines, headY, rowY, max_rows)
+  max_rows = max_rows or READ_MAXROWS
   g:color(90, 90, 90); g:frect(x0 + 6, headY - 8, width - 12, 1); g:color()
   g:color(170, 170, 170)
   g:text((#lines == 0) and "it answers none of the widget reads"
                         or ("what it answers (%d):"):format(#lines), x0 + 6, headY)
   g:color()
-  for i = 1, math.min(#lines, READ_MAXROWS) do
+  for i = 1, math.min(#lines, max_rows) do
     g:text(lines[i], x0 + 10, rowY + (i - 1) * LINE)
   end
-  if #lines > READ_MAXROWS then
+  if #lines > max_rows then
     g:color(120, 120, 120)
-    g:text(("... (+%d more)"):format(#lines - READ_MAXROWS), x0 + 10, rowY + READ_MAXROWS * LINE)
+    g:text(("... (+%d more)"):format(#lines - max_rows), x0 + 10, rowY + max_rows * LINE)
     g:color()
   end
 end
@@ -620,8 +645,8 @@ local function rebuild()
 end
 
 -- The per-frame poll + the guard. This is the WoW-OnUpdate analog (the engine tick pump, 09) -- hung on
--- the stack window's own Update (see open()), so it runs on the step for every frame the window stands and
--- for none after it has gone.
+-- the stack window's own Update (see open()), so it runs on the step for every frame the window shows and
+-- for none while it is hidden.
 local function poll()
   if frozen then return end                         -- held still: keep the last stack + box
   local m = hafen.ui():mouse()
@@ -655,7 +680,7 @@ local READ_HEAD = 406
 local READ_Y0   = 422
 
 local function drawPanel(g, w, h)
-  g:color(90, 90, 90); g:frect(STACK_X0 + 6, PANEL_Y0 - 8, STACK_W - 12, 1); g:color()      -- divider
+  g:color(90, 90, 90); g:frect(STACK_X0 + 6, PANEL_Y0 - 8, stack_width - 12, 1); g:color()      -- divider
   if not insp then
     g:color(150, 150, 150); g:text("hover a widget to see what it IS and how to select it", STACK_X0 + 6, P_CLASS); g:color()
     return
@@ -673,7 +698,7 @@ local function drawPanel(g, w, h)
   -- The anchor step: the enclosing window, written in FRONT with a space. Not an attribute of this widget.
   g:color(180, 200, 255)
   g:text(("anchor:  %s   (%s)"):format(
-    insp.anchor and ellipsis(insp.anchor.s, 44) or "-",
+    insp.anchor and ellipsis(insp.anchor.s, stack_characters(44)) or "-",
     insp.anchor and "the enclosing window: the chain's first step"
                  or "no captioned window encloses it: flat candidates only"), STACK_X0 + 6, P_ANCHOR)
   g:color()
@@ -686,8 +711,8 @@ local function drawPanel(g, w, h)
     local c = insp.cands[i]
     local y = SEL_Y0 + (i - 1) * LINE
     if c == insp.offer then g:color(150, 230, 150) end
-    g:text(ellipsis(c.sel, 58), STACK_X0 + 10, y)              -- the count column starts at SEL_COUNT_X; do not run into it
-    g:text(("%d match%s, #%d"):format(c.count, (c.count == 1) and "" or "es", c.idx), STACK_X0 + SEL_COUNT_X, y)
+    g:text(ellipsis(c.sel, stack_characters(58)), STACK_X0 + 10, y)   -- the count column starts at SEL_COUNT_X; do not run into it
+    g:text(("%d match%s, #%d"):format(c.count, (c.count == 1) and "" or "es", c.idx), STACK_X0 + math.floor(SEL_COUNT_X * stack_scale), y)
     if c == insp.offer then g:color() end
   end
   -- The offer FLOATS right under the list rather than sitting at a fixed y: most widgets have 3 candidates,
@@ -721,8 +746,8 @@ end
 --     the next step, however many arrived in the same tick. A slow beat (TREE_REFRESH) rebuilds them as
 --     well, for what no event carries: a caption that changed, a widget hidden or shown.
 --   * A rebuild walks the EXPANDED rows only, so it costs what is on show and never the whole tree. The
---     subscriptions are made while the window stands and dropped in close(): a closed window listens to
---     nothing, the rule this whole file keeps.
+--     subscriptions are made while the window shows and dropped when the X hides it: a hidden window
+--     listens to nothing, the rule this whole file keeps.
 --   * [+] / [-] expands and collapses; the root starts open. A left click on a row PICKS it -- the row is
 --     tinted and the widget is outlined on the screen in orange, which is how you tell which of forty
 --     Labels this one is -- and a second click lets it go; a right click opens its Inspector.
@@ -733,13 +758,11 @@ local TREE_X0       = 0                    -- the column is the left-hand part; 
 local TREE_Y0       = STACK_Y0             -- first row y, level with the stack's
 local TREE_INDENT   = 12                   -- pixels per depth
 local TREE_MARKER_W = 22                   -- "[+]" and a gap, before the label
-local TREE_MAXROWS  = math.floor((WIN_H - 20 - TREE_Y0) / LINE)   -- rows that fit above the footer line
 local TREE_WHEEL    = 3                    -- rows per wheel notch
 local TREE_REFRESH  = 0.5                  -- seconds between the beats that re-read the rows on show
 local TREE_CHAR_W   = 6.7                  -- what a character of the default font is budgeted at, as elsewhere here
 
 local session_subscriptions = {}
-local event_subscriptions = {}
 local expanded = {}
 local tree_rows = {}
 local tree_scroll = 0
@@ -784,18 +807,15 @@ local function sync_session_subscriptions(session_list)
   end
 end
 
-local function reset_tree_subscriptions()
+-- Drop the tree's own subscriptions: a hidden window listens to nothing. The next rebuild makes them again
+-- through sync_session_subscriptions, which is why showing the window marks the tree dirty.
+local function drop_tree_subscriptions()
   for session_handle, subscriptions in pairs(session_subscriptions) do
     for subscription_index, subscription in ipairs(subscriptions) do
       subscription:off()
     end
   end
   session_subscriptions = {}
-
-  for subscription_index, subscription in ipairs(event_subscriptions) do
-    subscription:off()
-  end
-  event_subscriptions = {}
 end
 
 local function discover_roots()
@@ -919,7 +939,7 @@ local function rebuild_tree()
   end
 
   tree_rows = out
-  tree_scroll = math.max(0, math.min(tree_scroll, #out - TREE_MAXROWS))
+  tree_scroll = math.max(0, math.min(tree_scroll, #out - tree_max_rows))
 end
 
 local function tree_tick(delta_time)
@@ -937,13 +957,13 @@ local function tree_tick(delta_time)
 end
 
 local function tree_scroll_by(amount_rows)
-  tree_scroll = math.max(0, math.min(tree_scroll + amount_rows, #tree_rows - TREE_MAXROWS))
+  tree_scroll = math.max(0, math.min(tree_scroll + amount_rows, #tree_rows - tree_max_rows))
 end
 
 local function tree_row_at(y_coordinate)
   if y_coordinate < TREE_Y0 then return nil end
   local line_index = math.floor((y_coordinate - TREE_Y0) / LINE)
-  if line_index >= TREE_MAXROWS then return nil end
+  if line_index >= tree_max_rows then return nil end
   return tree_rows[tree_scroll + line_index + 1]
 end
 
@@ -971,7 +991,7 @@ local function draw_tree(graphics, width, height)
   graphics:frect(STACK_X0, 6, 1, height - 12)
   graphics:color()
   local total_count = #tree_rows
-  local shown_count = math.max(0, math.min(total_count - tree_scroll, TREE_MAXROWS))
+  local shown_count = math.max(0, math.min(total_count - tree_scroll, tree_max_rows))
 
   local header_text
   local current_session = hafen.session():current()
@@ -1023,9 +1043,21 @@ end
 
 -- ======================================================================================== the stack window
 
+-- The numbers the draw and the click maps share, from the content box. Pure arithmetic on locals -- no
+-- widget is read -- so Draw may call it the frame the box moved (api/threading.md), and MouseDown reads what
+-- the last frame drew.
+local function layout(width, height)
+  content_width, content_height = width, height
+  stack_width = math.max(1, width - TREE_W)
+  stack_scale = stack_width / STACK_W
+  tree_max_rows = math.max(1, math.floor((height - 20 - TREE_Y0) / LINE))
+  read_max_rows = math.max(1, math.floor((height - 24 - READ_Y0) / LINE) - 1)
+end
+
 -- The window draws the stack text: root at the TOP, deeper widgets indented below (like /framestack).
 -- Each row is CLICKABLE (see onClick) to open that widget's inspector.
 local function drawStack(g, w, h)
+  if (w ~= content_width) or (h ~= content_height) then layout(w, h) end   -- the grip moved the box
   g:color(0, 0, 0, 160); g:frect(0, 0, w, h); g:color()            -- translucent backdrop
   local shown = math.min(#rows, STACK_MAXROWS)
   local above = #rows - shown                                      -- clipped at the ROOT end, never the leaf
@@ -1053,13 +1085,13 @@ local function drawStack(g, w, h)
         r.w, r.h)
       -- tint the leaf (the hovered widget) so it stands out
       if i == 1 then g:color(120, 230, 120) end
-      g:text(ellipsis(line, 62), STACK_X0 + 6, y)
+      g:text(ellipsis(line, stack_characters(62)), STACK_X0 + 6, y)
       if i == 1 then g:color() end
       y = y + LINE
     end
   end
   drawPanel(g, w, h)
-  drawReads(g, STACK_X0, STACK_W, reads, READ_HEAD, READ_Y0)        -- 063.4: what the hovered widget answers
+  drawReads(g, STACK_X0, stack_width, reads, READ_HEAD, READ_Y0, read_max_rows)   -- 063.4: what the hovered widget answers
   g:color(150, 150, 120)
   g:text("click a row to inspect / a selector to log it (the freeze hotkey holds it)", STACK_X0 + 6, h - 16)
   draw_tree(g, w, h)                                               -- the column to the left of all of that
@@ -1104,6 +1136,7 @@ local function draw_thick_rect(graphics, x_coordinate, y_coordinate, rect_width,
 end
 
 local function draw_outline(graphics, width, height)
+  if not (win and win:visible()) then return end     -- hidden by the X: the boxes go with the window
   if hoverPos and hoverSize then
     graphics:color(80, 230, 90)
     graphics:rect(hoverPos.x, hoverPos.y, hoverSize.w, hoverSize.h)
@@ -1116,40 +1149,50 @@ local function draw_outline(graphics, width, height)
   end
 end
 
--- The window has gone (the X) or is about to (:widgetstack): forget everything that was about it. Called
--- while it still stands -- Close fires before the client destroys the window, and the toggle calls this
--- before destroying it -- which is when its place can still be read, so the next open() puts it back there.
--- The outline goes with the window, and so do what was hovered and what the tree column listened to: a
--- closed window holds nothing still, hovers nothing and hears nothing.
-local function close()
-  place = win:position()
-  win = nil
-  hafen.ui():overlay():remove("outline")
+-- The X, or :widgetstack on a showing window: hide it and drop what only a showing window needs. The hover
+-- and the outline go -- a hidden window outlines nothing -- and so do the tree's subscriptions; the tree's
+-- rows, its expansion, its pick and its scroll stay, and show() brings them back as they were.
+local function hide()
+  win:visible(false)
   last, rows, insp, reads = nil, {}, nil, {}
   hoverPos, hoverSize = nil, nil
   frozen = false
-  reset_tree_subscriptions()
-  tree_pick, pick_position, pick_size = nil, nil, nil
-  tree_rows = {}
-  tree_scroll = 0
+  drop_tree_subscriptions()
 end
 
--- Build the window, and with it everything that runs only while it stands: the poll and the tree's beat,
--- as its own Update, and the outline overlay. All of it ends with it -- the Update because the subscription
--- is the window's, the overlay and the tree's subscriptions because close() drops them -- so a closed
--- widgetstack costs nothing a frame.
+-- :widgetstack on a hidden window: show it where it was. The tree is marked dirty so the next step rebuilds
+-- it and makes its subscriptions again.
+local function show()
+  tree_dirty = true
+  win:visible(true)
+end
+
+-- Build the window, once, and with it everything that runs while it shows: the poll and the tree's beat, as
+-- its own Update, and the outline overlay. All of it steps over a hidden window, so a hidden widgetstack
+-- costs nothing a frame, and all of it ends with the addon.
 local function open()
   if win then return end
   tree_dirty = true                  -- the first step builds the column
   win = hafen.ui():window()
     :title("Widget Stack")
     :size(WIN_W, WIN_H)
-    :position(place and place.x or 60, place and place.y or 60)
+    :position(60, 60)
+  win:resizable(true)                -- the client's own corner grip
+  win:remember("window")             -- the place and the size
+  layout(WIN_W, WIN_H)               -- the stock box until the first Draw reads the remembered one
   -- widget:on(key, fn) hands back a SUB, not the widget (041.3), so none of these can sit mid-chain above.
   win:on("Draw", function(event) drawStack(event:g(), event:w(), event:h()) end)
   win:on("Update", function(delta_time)
+    if not win:visible() then return end   -- hidden by the X: nothing to poll, nothing to rebuild
     poll()
     tree_tick(delta_time)
+  end)
+  -- Once, on release: the floor is written here and not during the drag, where the grip and this
+  -- handler would take turns writing the size.
+  win:on("Resized", function(event)
+    local clamped_width = math.max(MIN_WIN_W, event:w())
+    local clamped_height = math.max(MIN_WIN_H, event:h())
+    if (clamped_width ~= event:w()) or (clamped_height ~= event:h()) then win:size(clamped_width, clamped_height) end
   end)
   win:on("MouseDown", function(event)
     if event:x() < STACK_X0 then tree_click(event) else stackClick(event) end
@@ -1159,23 +1202,23 @@ local function open()
     tree_scroll_by(((event:amount() > 0) and 1 or -1) * TREE_WHEEL)
     event:preventDefault()
   end)
-  -- The chrome's close button destroys the window, so there is nothing left to hide: what is kept
-  -- afterwards is "there is no window", and :widgetstack builds a new one where this one stood.
-  win:on("Close", function()
-    close()
-    hafen.log():write("widgetstack: window closed (X) -- :widgetstack to bring it back")
+  -- The X hides; the window, the tree and what was picked stay, and :widgetstack shows it again.
+  win:on("Close", function(event)
+    event:preventDefault()
+    hide()
+    hafen.log():write("widgetstack: window hidden (X) -- :widgetstack to bring it back")
   end)
 
-  event_subscriptions[#event_subscriptions + 1] = hafen.event():on("SessionAdded", function(added_session)
+  hafen.event():on("SessionAdded", function(added_session)
     tree_dirty = true
   end)
-  event_subscriptions[#event_subscriptions + 1] = hafen.event():on("SessionEnteredWorld", function(entered_session)
+  hafen.event():on("SessionEnteredWorld", function(entered_session)
     tree_dirty = true
   end)
-  event_subscriptions[#event_subscriptions + 1] = hafen.event():on("SessionSelected", function(selected_session)
+  hafen.event():on("SessionSelected", function(selected_session)
     tree_dirty = true
   end)
-  event_subscriptions[#event_subscriptions + 1] = hafen.event():on("SessionRemoved", function(removed_session)
+  hafen.event():on("SessionRemoved", function(removed_session)
     if session_subscriptions[removed_session] then
       for subscription_index, subscription in ipairs(session_subscriptions[removed_session]) do
         subscription:off()
@@ -1189,19 +1232,19 @@ local function open()
   hafen.log():write("widgetstack: window up -- hover the UI; click a row to inspect; :selector logs the hovered widget's selector; :widgetstack toggles it, the freeze hotkey holds it")
 end
 
--- :widgetstack -- toggle the window (WoW /framestack on/off): destroy it while it stands, build it when not.
+-- :widgetstack -- toggle the window (WoW /framestack on/off): hide it while it shows, show it while it is
+-- hidden, build it the first time.
 hafen.console():on("widgetstack", function(args)
   -- The line is answered inside the CHARACTER's tree and the window stands in the layer, so the build and
-  -- the destroy both go to the step, holding neither (api/threading.md).
+  -- the writes both go to the step, holding neither (api/threading.md).
   hafen.timer():after(0, function()
-    if win then
-      local standing = win
-      close()                                       -- forget it while it still stands: its place is read there
-      standing:destroy()
+    if win and win:exists() then
+      if win:visible() then hide() else show() end
     else
+      win = nil
       open()
     end
-    hafen.log():write((":widgetstack -> window %s"):format(win and "opened" or "closed"))
+    hafen.log():write((":widgetstack -> window %s"):format(win:visible() and "shown" or "hidden"))
   end)
 end)
 
@@ -1228,7 +1271,7 @@ end)
 -- starts UNBOUND (D-047) -- assign it in Options > Keybindings > Widgetstack (suggested: Ctrl+Shift+F), where
 -- the choice is persisted exactly like a built-in binding. Nothing to hold while no window stands.
 hafen.client():options():keybindings():on("freeze", function()
-  if not win then hafen.log():write(":widgetstack freeze -> no window up (:widgetstack opens it)"); return end
+  if not (win and win:visible()) then hafen.log():write(":widgetstack freeze -> no window up (:widgetstack opens it)"); return end
   frozen = not frozen
   hafen.log():write((":widgetstack freeze %s"):format(frozen and "ON" or "OFF"))
 end)

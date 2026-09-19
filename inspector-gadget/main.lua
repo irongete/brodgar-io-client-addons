@@ -267,7 +267,7 @@ local function addButton(session)
     local entry = session:menugrid():add(ENTRY_ID):name("Inspector Gadget")
       :tooltip("Hover an object to read what the client knows about it; right-click the ground to stop")
     if menuIcon then entry:icon(menuIcon) end
-    entry:on("use", function() setLens(not lensIsOn) end)
+    entry:on("Pressed", function() setLens(not lensIsOn) end)
   end)
   if not ok then hafen.log():write("Inspector Gadget: " .. tostring(err)) end
 end

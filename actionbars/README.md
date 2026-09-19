@@ -46,8 +46,8 @@ It also fixes the ceiling. **Twelve bars is every slot there is** — 144 of the
 twelve rows and there is no thirteenth to turn on.
 
 **Actionbar1 is the exception, and it pages.** It stands in for the bar the client draws, so it does what
-that bar did: it shows **whichever page you are on**, and `Go to page 3` in Options ▸ Keybindings ▸ Action
-bar moves it to slots 25–36. Hover its frame and the tooltip says which page it is showing.
+that bar did: it shows **whichever page you are on**, and the client's page keys (`Alt+3` turns to page 3)
+move it to slots 25–36. Hover its frame and the tooltip says which page it is showing.
 
 So the main bar is the one that moves and the other eleven are the ones that stay. That is the point of
 having both: one bar that follows the page the way the game's own always did, and as many nailed-down ones
@@ -130,26 +130,24 @@ back gets the same keys — and a `:reload` never costs you an assignment.
 ### Nothing is reserved
 
 **No key is claimed by hardcoding, so bind whatever you like.** The row `1` through `0` is twelve ordinary
-bindings, listed in **Options ▸ Keybindings ▸ Action bar** with the twelve page keys beside them, and matching
-is exact: `Ctrl+3` is a binding of its own rather than button 3 with a modifier ignored.
-`F1`–`F12` are free too, with all three modifiers — nothing in the client defaults to a function key.
+bindings of the client's own bar, and matching is exact: `Ctrl+3` is a binding of its own rather than button
+3 with a modifier ignored. `F1`–`F12` are free too, with all three modifiers — nothing in the client defaults
+to a function key.
 
-### Two sections, and which to use
+### The client's own section is hidden
 
-Hiding the client's bar does **not** silence its keys, deliberately: a binding the panel lists should do
-what it says. So there are two places that reach Actionbar1's twelve buttons, and both work:
+The client lists its bar's keys under **Options ▸ Keybindings ▸ Action bar** — `Button 1`…`12` and `Go to
+page 1`…`12`. While this addon runs that section is off the panel, so the one place you find for the bars is
+**Actionbars**, and every row there names a bar. Disable the addon and the client's section is back.
 
-| Options ▸ Keybindings ▸ | Reaches |
-|---|---|
-| **Action bar** — `Button 1`…`12` | the twelve buttons of the page you are on, which is Actionbar1 |
-| **Action bar** — `Go to page 1`…`12` | which page Actionbar1 shows |
-| **Actionbars** — `Actionbar1 slot 1`…`12` | the same twelve, by the bar's name |
-| **Actionbars** — `Actionbar2 slot 1`… | every other bar, each nailed to its own page |
+Hidden is not silenced, deliberately: the client's bindings keep their keys and keep working. `1`–`0` press
+the first ten buttons of the page you are on, which is Actionbar1, and `Alt+1`–`Alt+0` turn its page, exactly
+as they always did, only now on a bar you placed yourself. Assign the same key to `Actionbar1 slot …` and yours
+takes it over; leave the row unbound and the client's key goes on pressing the button. `Actionbar1 slot 11`
+and `12` are the two the number row never reached.
 
-Both rows that reach Actionbar1 do the same thing, and both already work out of the box: `1`–`0` press its
-first ten buttons and `Alt+1`–`Alt+0` turn its page, exactly as they always did, only now on a bar you
-placed yourself. Leave `Actionbar1 slot …` unbound if you like — it is there for buttons 11 and 12, which
-the number row never reached.
+The page keys have no row of their own here: they stay on the client's `Alt+1`–`Alt+0`, and remapping them
+means disabling the addon, moving them in the client's section, and enabling it again.
 
 One thing the client still decides for you: **in combat**, `1`–`5` and `Shift+1`–`5` are the combat-move
 bindings, and a combat window is offered a key before any bar is. Bind those elsewhere if you fight with

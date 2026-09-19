@@ -13,6 +13,11 @@ local keybindings = hafen.client():options():keybindings()
 local subscriptions = {} -- [barNumber] = { subscription x12 }
 local labels = {} -- [barNumber] = { [slotIndex] = key }: what each button prints in its corner
 
+-- The client's own "Action bar" section (Button 1-12, Go to page 1-12) comes off the keybindings panel while
+-- the addon runs, so the rows a user finds for the bars are the addon's. The client's bindings under it keep
+-- their keys and keep firing; the panel shows them again when the addon is disabled.
+keybindings:section("actionbar"):visible(false)
+
 function Hotkeys.name(barNumber, slotIndex)
     return "Actionbar" .. barNumber .. " slot " .. slotIndex
 end

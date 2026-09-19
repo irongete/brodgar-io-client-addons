@@ -1,0 +1,14 @@
+{
+  "id": "materials-preview",
+  "name": "Materials Preview",
+  "version": "1.0.0",
+  "author": "irongete",
+  "description": "Catalogs game objects with variable materials and discovered material resources into persistent SQLite tables.",
+  "api_version": "1.0",
+  "files": [
+    "main.lua"
+  ],
+  "permissions": [],
+  "dependencies": [],
+  "optional_dependencies": []
+}

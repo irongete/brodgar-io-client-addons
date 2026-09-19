@@ -89,17 +89,6 @@ function Options.showStatus(message)
     end
 end
 
--- A label never wraps: the intro is a bare surface as wide as the page drawing wrapped text. Measured
--- first so the surface is as tall as the lines; +2 px keeps a descender on the last line from clipping.
-local function addParagraph(root, text)
-    local style = {width = root:size().w - 8}
-    local box = hafen.ui():measure(text, style)
-    local surface = hafen.ui():widget():parent(root):size(style.width, box.h + 2)
-    surface:on("Draw", function(drawEvent)
-        drawEvent:g():text(text, 0, 0, style)
-    end)
-end
-
 local function rowTooltip(barNumber)
     if barNumber == Layout.MAIN_BAR then
         return "the page you are on, lying flat or standing upright -- it stands in for the client's own bar"
@@ -113,8 +102,6 @@ end
 -- Rebuilt on every visit; nothing built here is kept but statusLabel.
 addonOptions:panel(function(root)
     root:gap(4)
-    addParagraph(root, "A bar is one page of the belt: ActionbarN is slots (N-1)x12+1 to Nx12. Actionbar1"
-        .. " follows the page you are on, in place of the client's own bar.")
     for barNumber = 1, Layout.MAX_BARS do
         local row = hafen.ui():row():gap(6):parent(root)
         hafen.ui():dropdown():parent(row):size(90):tooltip(rowTooltip(barNumber)):bind(barOptions[barNumber])

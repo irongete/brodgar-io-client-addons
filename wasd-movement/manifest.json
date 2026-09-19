@@ -1,7 +1,7 @@
 {
   "id": "wasd-movement",
   "name": "WASD Movement",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "brodgar",
   "description": "Walk with W, A, S and D relative to the camera: W goes up the screen, A and D to either side, S back down, and letting go stops the character.",
   "api_version": "1.0",

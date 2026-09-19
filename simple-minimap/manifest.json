@@ -3,7 +3,7 @@
   "name": "Simple Minimap",
   "version": "1.0.0",
   "author": "brodgar",
-  "description": "Puts the corner minimap in the action bars' box: the client's carved plate off, the eight-piece window frame round the map instead.",
+  "description": "Puts the corner minimap in a window of its own: dragged by its title, sized by the client's corner grip, and dressed by any theme as the window it is.",
   "api_version": "1.0",
   "files": ["main.lua"]
 }

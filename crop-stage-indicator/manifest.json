@@ -1,0 +1,9 @@
+{
+  "id": "crop-stage-indicator",
+  "name": "Crop Stage Indicator",
+  "version": "0.2.0",
+  "author": "irongete",
+  "description": "Shows the growth stage number over every crop in view. Toggle it with the key assigned in Options > Game > Keybindings > Crop Stage Indicator.",
+  "api_version": "1.0",
+  "files": ["main.lua"]
+}

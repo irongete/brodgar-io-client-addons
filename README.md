@@ -59,9 +59,9 @@ version is a commit. If the upload fails the manifest is put back and nothing is
 | `autodrop` | Names a set of items and throws every one of them on the ground the moment it reaches that character's backpack — and what carries a count of its own, seeds above all, only once that count is 50 | `item.drop` |
 | `extended-village-permissions` | Assign up to 255 groups (0-254) beyond the client's native limit of eight | `widget.value` |
 | `builder-helper` | Remembers what every building site you have opened still needs, and one key floats each material's have/total over the site | — |
+| `crop-stage-indicator` | Shows the growth stage number over every crop in view, toggled with a hotkey | — |
 | `essentials` | What the client does for a character the moment it enters the world: the toggles, the inventory and the movement speed, each a row in Options ▸ AddOns | `menugrid.use`, `speed.set` |
 | `eventstack` | A live log of what the client does: every message out, every update in, every event on the bus, and every widget coming and going — narrowed by session, widget and event, and one click for what a row carried | — |
-| `farming-helper` | One key puts the growth stage over every planted crop in sight, read from the state bytes the server sent with it | — |
 | `gob-cache-map` | Writes down every tree and boulder you walk past, and finds one again: search a name, pick a row, and the map goes there | — |
 | `hitboxes` | Three modes for the footprint of every game object in view — and of the building you are placing: off, a blue patch laid on the terrain and hidden by whatever stands in front of it, and the same patch told the world may not hide it | — |
 | `immersion` | Labels the nearest game object within a 180-degree cone in front of the character on screen with a floating "this", following it as you move and clearing it when nothing qualifies | `gob.click` |

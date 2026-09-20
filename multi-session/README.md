@@ -30,6 +30,7 @@ In **Options ▸ AddOns ▸ Multi-Session** you can:
 
 * Hide the names and `X` buttons to get a slim dock of portraits only.
 * Hide the character you are currently looking at from the dock.
+* Turn the coloured circles under your characters on or off.
 * Move the dock to another edge of the screen, or set it free and drag it wherever you like.
 * Lay the dock vertically or horizontally.
 * Sort your accounts by name, or order them by hand.

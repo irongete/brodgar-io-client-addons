@@ -9,6 +9,7 @@ local client_options = hafen.client():options():addon()
 local sort_by_name_option = client_options:boolean("sort_by_name"):default(true):add()
 local show_names_option = client_options:boolean("show_names"):default(true):add()
 local show_current_option = client_options:boolean("show_current"):default(true):add()
+local show_circles_option = client_options:boolean("show_circles"):default(true):add()
 local choose_placement_option = client_options:boolean("choose_placement"):default(false):add()
 local placement_option = client_options:choice("placement")
   :choices{"Anchor left", "Anchor right", "Anchor top", "Anchor bottom", "Free"}
@@ -58,8 +59,8 @@ function MultiSession.Options.is_show_names_enabled()
   return show_names_option:value() == true
 end
 
--- Design pixels the dock stands from the middle of the edge it is anchored to, along that edge: down or right
--- when positive, up or left when negative.
+-- Design pixels the dock's top (or its left end) stands from the middle of the edge it is anchored to, along
+-- that edge: down or right when positive, up or left when negative. The dock grows away from that end.
 function MultiSession.Options.get_edge_offset()
   return edge_offset_option:value() or 0
 end
@@ -77,6 +78,11 @@ end
 -- Checks whether the row of the character on screen is shown.
 function MultiSession.Options.is_show_current_enabled()
   return show_current_option:value() == true
+end
+
+-- Checks whether a coloured circle is drawn on the ground under each character.
+function MultiSession.Options.is_show_circles_enabled()
+  return show_circles_option:value() == true
 end
 
 -- Checks whether the placement choice is in force; unchecked, the dock is anchored to the left edge.
@@ -230,83 +236,47 @@ end
 function MultiSession.Options.order_changed()
 end
 
--- Paints an eye: open, or dimmed and slashed for a hidden account.
-local function draw_eye(draw_event, open)
-  local graphics = draw_event:g()
-  local width, height = draw_event:w(), draw_event:h()
-  local center_x, center_y = width / 2, height / 2
-  local half_width, half_height = width * 0.38, height * 0.22
-
-  -- The lens: the top arc left to right, then the bottom arc back, one convex polygon
-  local steps = 8
-  local points = {}
-  for step = 0, steps do
-    local fraction = step / steps
-    table.insert(points, center_x - half_width + 2 * half_width * fraction)
-    table.insert(points, center_y - half_height * math.sin(math.pi * fraction))
-  end
-  for step = steps, 0, -1 do
-    local fraction = step / steps
-    table.insert(points, center_x - half_width + 2 * half_width * fraction)
-    table.insert(points, center_y + half_height * math.sin(math.pi * fraction))
-  end
-
-  local configuration = MultiSession.Config
-  local unpack_points = table.unpack or unpack
-  graphics:color(open and configuration.EYE_OPEN_COLOR or configuration.EYE_CLOSED_COLOR)
-  graphics:poly(unpack_points(points))
-  graphics:color(configuration.EYE_PUPIL_COLOR)
-  graphics:prect(center_x, center_y, half_height * 0.75, 1)
-  if not open then
-    graphics:color(configuration.EYE_SLASH_COLOR)
-    graphics:line(center_x - half_width, center_y + half_height + 3, center_x + half_width, center_y - half_height - 3, 2)
-  end
-  graphics:color()
-end
-
--- One account of the visibility panel: the eye, which flips on a click, and the account's name.
-local function build_visibility_row(container_column, account_name)
+-- One account of the visibility list: its name, and at the right a button reading "Visible" or "Hidden"
+-- that flips on a click. The names are laid in a column of one width so the buttons line up.
+local function build_visibility_row(container_column, account_name, name_width)
   local configuration = MultiSession.Config
   local row_widget = hafen.ui():row()
     :gap(configuration.REORDER_ROW_GAP)
     :parent(container_column)
 
-  local eye = hafen.ui():widget()
-    :parent(row_widget)
-    :size(configuration.EYE_SIZE, configuration.EYE_SIZE)
-    :name("eye")
-    :tooltip("Show or hide " .. account_name .. " in the dock")
-  eye:stock{
-    bg = {color = configuration.PORTRAIT_FILL},
-    border = {color = configuration.PORTRAIT_EDGE, width = 1},
-  }
-
-  eye:on("Draw", function(draw_event)
-    draw_eye(draw_event, not MultiSession.Options.is_account_hidden(account_name))
-  end)
-
-  eye:on("MouseDown", function(press_event)
-    if press_event:button() ~= 1 then
-      return
-    end
-    press_event:preventDefault()
-    hafen.timer():after(0, function()
-      MultiSession.Options.set_account_hidden(account_name, not MultiSession.Options.is_account_hidden(account_name))
-    end)
-  end)
-
   local account_label = hafen.ui():label()
     :parent(row_widget)
     :text(account_name)
 
-  local vertical_offset = math.floor((configuration.EYE_SIZE - account_label:size().h) / 2)
-  if vertical_offset > 0 then
-    account_label:rule():margin(0, vertical_offset, 0, 0)
+  local function caption()
+    return MultiSession.Options.is_account_hidden(account_name) and "Hidden" or "Visible"
   end
+
+  local visibility_button = hafen.ui():button()
+    :parent(row_widget)
+    :size(configuration.VISIBILITY_BUTTON_WIDTH)
+    :text(caption())
+    :tooltip("Show or hide " .. account_name .. " in the dock")
+
+  local label_size = account_label:size()
+  local button_indent = math.max(0, name_width - label_size.w)
+  local label_offset = math.floor((visibility_button:size().h - label_size.h) / 2)
+  account_label:rule():margin(0, math.max(0, label_offset), 0, 0)
+  visibility_button:rule():margin(button_indent, 0, 0, 0)
+
+  visibility_button:on("Pressed", function()
+    hafen.timer():after(0, function()
+      MultiSession.Options.set_account_hidden(account_name, not MultiSession.Options.is_account_hidden(account_name))
+      if visibility_button:exists() then
+        visibility_button:text(caption())
+      end
+    end)
+  end)
 end
 
--- Rebuilds the visibility panel: one row per saved account, in the order the dock uses.
-local function refresh_visibility_rows(container_column)
+-- Rebuilds the visibility list: one row per saved account, in the order the dock uses. The names take the
+-- list's width less the button and the scrollbar's room, so every button stands at the right edge.
+local function refresh_visibility_rows(container_column, list_width)
   if not (container_column and container_column:exists()) then
     return
   end
@@ -323,8 +293,11 @@ local function refresh_visibility_rows(container_column)
     return
   end
 
+  local configuration = MultiSession.Config
+  local name_width = list_width - configuration.REORDER_ROW_GAP - configuration.VISIBILITY_BUTTON_WIDTH
+    - configuration.VISIBILITY_BAR_ROOM
   for _, account_name in ipairs(saved_accounts) do
-    build_visibility_row(container_column, account_name)
+    build_visibility_row(container_column, account_name, name_width)
   end
 end
 
@@ -381,6 +354,19 @@ client_options:panel(function(root_container)
     hafen.timer():after(0, function()
       if MultiSession.UI and MultiSession.UI.refresh_dock then
         MultiSession.UI.refresh_dock()
+      end
+    end)
+  end)
+
+  local show_circles_checkbox = hafen.ui():check()
+    :parent(root_container)
+    :text("Show a circle under each character")
+    :bind(show_circles_option)
+
+  show_circles_checkbox:on("Changed", function()
+    hafen.timer():after(0, function()
+      if MultiSession.SelectionCircles and MultiSession.SelectionCircles.synchronize_selection_circles then
+        MultiSession.SelectionCircles.synchronize_selection_circles()
       end
     end)
   end)
@@ -484,9 +470,21 @@ client_options:panel(function(root_container)
     :parent(right_panel)
     :text("Account visibility:")
 
+  -- The list scrolls once it outgrows its box. The box is as wide as the page leaves beside the order panel,
+  -- whose width is known once its rows are built, so the page's own scrollbar is never covered
+  refresh_account_rows(accounts_column)
+  local visibility_width = math.max(
+    MultiSession.Config.VISIBILITY_LIST_MIN_WIDTH,
+    root_container:size().w - left_panel:size().w - MultiSession.Config.PANELS_GAP
+  )
+  local visibility_scroll = hafen.ui():scroll()
+    :parent(right_panel)
+    :size(visibility_width, MultiSession.Config.VISIBILITY_LIST_HEIGHT)
+
   local visibility_column = hafen.ui():column()
     :gap(MultiSession.Config.REORDER_ROW_GAP)
-    :parent(right_panel)
+    :parent(visibility_scroll)
+    :position(0, 0)
 
   sort_checkbox:on("Changed", function(is_checked)
     -- Defers cross-tree UI updates to the engine step to avoid tree monitor deadlocks
@@ -497,7 +495,7 @@ client_options:panel(function(root_container)
       if accounts_column and accounts_column:exists() then
         refresh_account_rows(accounts_column)
       end
-      refresh_visibility_rows(visibility_column)
+      refresh_visibility_rows(visibility_column, visibility_width)
       if MultiSession.UI and MultiSession.UI.refresh_dock then
         MultiSession.UI.refresh_dock()
       end
@@ -505,11 +503,10 @@ client_options:panel(function(root_container)
   end)
 
   MultiSession.Options.order_changed = function()
-    refresh_visibility_rows(visibility_column)
+    refresh_visibility_rows(visibility_column, visibility_width)
   end
 
-  refresh_account_rows(accounts_column)
-  refresh_visibility_rows(visibility_column)
+  refresh_visibility_rows(visibility_column, visibility_width)
 end)
 
 -- Updates the dock on the next tick when an option changes, from the panel or from outside it.
@@ -522,6 +519,15 @@ for _, option in ipairs({sort_by_name_option, show_names_option, show_current_op
     end)
   end)
 end
+
+-- Draws or removes the ground circles on the next tick when their option changes.
+show_circles_option:on("Changed", function()
+  hafen.timer():after(0, function()
+    if MultiSession.SelectionCircles and MultiSession.SelectionCircles.synchronize_selection_circles then
+      MultiSession.SelectionCircles.synchronize_selection_circles()
+    end
+  end)
+end)
 
 -- Places the dock again on the next tick when its placement or its vertical position changes: the anchor
 -- rule is rewritten or released, which reaches every tree, so never from inside the panel's own handler.

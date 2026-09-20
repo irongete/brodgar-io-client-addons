@@ -105,7 +105,7 @@ end
 function MultiSession.SelectionCircles.synchronize_selection_circles()
   local session_list = hafen.session():list()
   local current_session = hafen.session():current()
-  local should_render_circles = (#session_list > 1)
+  local should_render_circles = (#session_list > 1) and MultiSession.Options.is_show_circles_enabled()
   local active_circle_sessions = {}
   pending_circle_retry = false
 

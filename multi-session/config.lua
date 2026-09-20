@@ -30,13 +30,13 @@ MultiSession.Config = {
   REORDER_BUTTON_WIDTH = 50,
   REORDER_ROW_GAP = 4,
   PANELS_GAP = 24,
-  EYE_SIZE = 24,
 
-  -- The eye that shows or hides an account: the lens, its pupil, and the slash across a hidden one
-  EYE_OPEN_COLOR = {220, 226, 210, 255},
-  EYE_CLOSED_COLOR = {110, 118, 108, 255},
-  EYE_PUPIL_COLOR = {24, 32, 26, 255},
-  EYE_SLASH_COLOR = {200, 80, 70, 255},
+  -- The account visibility list: its scrolling box takes the page's width left beside the order panel, never
+  -- less than the minimum; the room its scrollbar needs is kept clear of the buttons
+  VISIBILITY_LIST_HEIGHT = 160,
+  VISIBILITY_LIST_MIN_WIDTH = 140,
+  VISIBILITY_BAR_ROOM = 20,
+  VISIBILITY_BUTTON_WIDTH = 70,
   OFFSET_SLIDER_WIDTH = 200,
   OFFSET_RANGE = 600,
   INSET_RANGE = 400,

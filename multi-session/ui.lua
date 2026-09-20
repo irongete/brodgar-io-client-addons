@@ -70,11 +70,19 @@ function MultiSession.UI.apply_dock_placement()
   end
 
   -- The offset runs along the edge (down a side edge, across the top or the bottom one) and the inset runs in
-  -- from it, towards the middle of the screen
+  -- from it, towards the middle of the screen. The anchor meets the dock's middle to the edge's middle, so half
+  -- the dock's length along the edge is added: its top (or its left end) stands at the middle plus the offset,
+  -- and a dock that grows with another account grows down or right, never up or left
   local edge_offset = MultiSession.Options.get_edge_offset()
   local edge_inset = MultiSession.Options.get_edge_inset()
+  local sideways = (placement == "left" or placement == "right")
+  local half_length = 0
+  if dock_up then
+    local dock_size = dock:size()
+    half_length = math.floor((sideways and dock_size.h or dock_size.w) / 2)
+  end
   local inwards = {left = {edge_inset, 0}, right = {-edge_inset, 0}, top = {0, edge_inset}, bottom = {0, -edge_inset}}
-  local along = (placement == "left" or placement == "right") and {0, edge_offset} or {edge_offset, 0}
+  local along = sideways and {0, edge_offset + half_length} or {edge_offset + half_length, 0}
   sheet:rule(DOCK_RULE):anchor{
     to = "screen",
     at = placement,
@@ -358,7 +366,7 @@ function MultiSession.UI.create_saved_session_button(account_name)
     :position(configuration.PADDING, configuration.PADDING)
     :size(configuration.ROW_WIDTH)
     :text(account_name)
-    :tooltip("Connect saved session: " .. account_name)
+    :tooltip(account_name)
 
   connect_button:on("Pressed", function()
     hafen.timer():after(0, function()
@@ -376,7 +384,7 @@ function MultiSession.UI.create_saved_session_square(account_name)
     pending = false,
   }
 
-  local square = create_square("saved"):tooltip("Connect saved session: " .. account_name)
+  local square = create_square("saved"):tooltip(account_name)
 
   square:on("Draw", function(draw_event)
     local color = square_state.pending and configuration.INITIAL_PENDING_COLOR or configuration.INITIAL_COLOR
@@ -513,12 +521,13 @@ function MultiSession.UI.refresh_dock()
       row.select_button:text(button_label)
     end
 
-    -- The portrait says who it is, which with names off is the only place that does
-    local portrait_tooltip = "Go to " .. display_label
-    if row.tooltip ~= portrait_tooltip then
-      row.tooltip = portrait_tooltip
-      row.mirror:tooltip(portrait_tooltip)
-      row.placeholder:tooltip(portrait_tooltip)
+    -- Hovering the row says who it is: the character's name once the session is in the world, the account's
+    -- name while it is still on the login or the character screen
+    if row.tooltip ~= display_label then
+      row.tooltip = display_label
+      row.mirror:tooltip(display_label)
+      row.placeholder:tooltip(display_label)
+      row.select_button:tooltip(display_label)
     end
 
     -- The row of the character on screen can be left out, and so can a hidden account's
@@ -663,9 +672,13 @@ function MultiSession.UI.refresh_dock()
   local target_height = horizontal and dock_breadth or dock_length
   local current_size = dock:size()
 
-  -- Only resize if the dimensions changed; the anchor re-centres the dock on the edge within the call
+  -- Only resize if the dimensions changed; the anchor is then written again with the new length, so the dock's
+  -- top or left end stays put and the growth goes down or right
   if current_size.w ~= target_width or current_size.h ~= target_height then
     dock:size(target_width, target_height)
+    if MultiSession.Options.get_placement() ~= "free" then
+      MultiSession.UI.apply_dock_placement()
+    end
   end
   if grip and grip:exists() then
     local grip_size = grip:size()

@@ -51,13 +51,10 @@ end
 hafen.client():options():keybindings():on("Select next session", cycle_next_session)
 hafen.client():options():keybindings():on("Select character", MultiSession.SelectionCircles.toggle_character_pick)
 
--- Periodically saves the window coordinates to persistent storage
-hafen.timer():every(configuration.SAVE_INTERVAL_SECONDS, MultiSession.UI.save_window_position)
-
 -- Periodically retries creating selection circles that were not yet loaded
 hafen.timer():every(configuration.RETRY_INTERVAL_SECONDS, MultiSession.SelectionCircles.retry_pending_circles)
 
--- Subscribes to session lifecycle events to keep UI and selection circles synchronized
+-- Subscribes to session lifecycle events to keep the dock and the selection circles synchronized
 for _, event_name in ipairs({"SessionAdded", "SessionEnteredWorld", "SessionSelected", "SessionRemoved"}) do
   hafen.event():on(event_name, function(session)
     hafen.timer():after(0, function()
@@ -72,12 +69,12 @@ for _, event_name in ipairs({"SessionAdded", "SessionEnteredWorld", "SessionSele
         end
       end
 
-      MultiSession.UI.refresh_session_window()
+      MultiSession.UI.refresh_dock()
       MultiSession.SelectionCircles.synchronize_selection_circles()
     end)
   end)
 end
 
 -- Initial startup setup
-MultiSession.UI.create_session_window()
+MultiSession.UI.create_dock()
 MultiSession.SelectionCircles.synchronize_selection_circles()

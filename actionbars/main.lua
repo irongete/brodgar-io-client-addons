@@ -7,7 +7,8 @@ local Sync = Actionbars.Sync
 -- Hotkeys are declared here as well, so Options > Keybindings lists them before any login.
 hafen.event():on("Load", Sync.syncAll)
 
-for _, eventName in ipairs({"SessionEnteredWorld", "SessionAdded", "SessionRemoved", "SessionSelected"}) do
+hafen.event():on("SessionEnteredWorld", Sync.enteredWorld)
+for _, eventName in ipairs({"SessionAdded", "SessionRemoved", "SessionSelected"}) do
     hafen.event():on(eventName, Sync.syncAll)
 end
 

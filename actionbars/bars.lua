@@ -3,8 +3,7 @@
 -- never receive the Drop. A copy is built per login from SessionEnteredWorld and dies with its tree.
 
 local Layout = Actionbars.Layout
-local Positions = Actionbars.Positions
-local Options = Actionbars.Options
+local Config = Actionbars.Config
 local Slots = Actionbars.Slots
 local Hotkeys = Actionbars.Hotkeys
 
@@ -175,11 +174,11 @@ function Bars.build(session, barNumber)
         return
     end
 
-    local upright = Options.isUpright(barNumber)
-    local buttonCount = Options.buttonCount(barNumber)
+    local upright = Config.isUpright(session, barNumber)
+    local buttonCount = Config.buttonCount(session, barNumber)
     local boxWidth, boxHeight = Layout.barBox(upright, buttonCount)
     local hudSize = hud:size()
-    local record = Positions.recordFor(session, barNumber, boxWidth, boxHeight, hudSize.w, hudSize.h)
+    local record = Config.placed(session, barNumber, boxWidth, boxHeight, hudSize.w, hudSize.h)
     if not record then
         return -- the HUD is up but the character's saved variables are not yet: the next sync builds it
     end
@@ -228,28 +227,29 @@ function Bars.build(session, barNumber)
     barWidget:on("Dragged", function(event)
         -- event:x()/y() is where it landed, the client's clamp included. The place is this character's own:
         -- nothing of another login is touched here, which a handler running inside this tree could not do.
-        local dragged = Positions.find(session, barNumber)
+        local dragged = Config.find(session, barNumber)
         if not dragged then
             return
         end
         dragged.x, dragged.y = event:x(), event:y()
-        Positions.save(session)
+        Config.save(session)
     end)
 
     sessionBars[barNumber] = barWidget
 end
 
--- One login's bars in line with the options: build what is on, destroy what is off. A bar whose widget died
--- with a HUD torn down and rebuilt inside one login (leaving the world and coming back) is built again.
+-- One login's bars in line with its character's settings: build what is on, destroy what is off. A bar
+-- whose widget died with a HUD torn down and rebuilt inside one login (leaving the world and coming back,
+-- or picking another character) is built again.
 function Bars.sync(session)
     local sessionBars = barsFor(session)
     for barNumber, barWidget in pairs(sessionBars) do
-        if (not Options.isOn(barNumber)) or (not barWidget:exists()) then
+        if (not Config.isOn(session, barNumber)) or (not barWidget:exists()) then
             Bars.destroy(session, barNumber)
         end
     end
     for barNumber = 1, Layout.MAX_BARS do
-        if Options.isOn(barNumber) then
+        if Config.isOn(session, barNumber) then
             Bars.build(session, barNumber)
         end
     end
@@ -266,17 +266,10 @@ end
 
 -- One login's copy of one bar to that character's record.
 function Bars.move(session, barNumber)
-    local record = Positions.find(session, barNumber)
+    local record = Config.find(session, barNumber)
     local sessionBars = barsBySession[session]
     local barWidget = record and sessionBars and sessionBars[barNumber]
     if barWidget and barWidget:exists() then
         barWidget:position(record.x, record.y)
-    end
-end
-
--- Rotating calls this: the box changes and the grip with it, so the bar is rebuilt rather than resized.
-function Bars.destroyEverywhere(barNumber)
-    for session in pairs(barsBySession) do
-        Bars.destroy(session, barNumber)
     end
 end

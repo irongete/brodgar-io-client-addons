@@ -1,45 +1,28 @@
--- Which bars are on, which way they stand and how many buttons each shows: a choice option and a number
--- option per bar in the client's preference store, shown as twelve rows (a dropdown and a slider) on
--- Options > AddOns > Actionbars. The addon has no window of its own. A bar's number is its identity
--- (Actionbar4 is always slots 37-48), so there are twelve fixed rows and no Add button.
+-- The page on Options > AddOns > Actionbars: twelve rows, one per bar, each a dropdown (off, flat or
+-- upright) and a slider (how many buttons, 1..12). The rows edit the bars of the character on screen: a
+-- bar's settings are that character's (config.lua), and the client's own options behind the controls are
+-- a mirror of the character on screen, loaded whenever the screen changes hands or the page opens. The
+-- addon has no window of its own. A bar's number is its identity (Actionbar4 is always slots 37-48), so
+-- there are twelve fixed rows and no Add button.
 
 local Layout = Actionbars.Layout
-local Positions = Actionbars.Positions
+local Config = Actionbars.Config
 
 local Options = {}
 Actionbars.Options = Options
 
-Options.OFF = "off"
-Options.FLAT = "flat"
-Options.UPRIGHT = "upright"
-
 local addonOptions = hafen.client():options():addon()
-local barOptions = {} -- [barNumber] = the choice option: off, flat or upright
+local barOptions = {} -- [barNumber] = the choice option: off, flat or upright, for the character on screen
 local buttonOptions = {} -- [barNumber] = the number option: how many of the bar's slots it shows, 1..12
 
--- A bar with a saved place had been turned on by the version before the options: it seeds its own row.
-local function defaultMode(barNumber)
-    local legacyUpright = Positions.legacyUpright(barNumber)
-    if legacyUpright == true then
-        return Options.UPRIGHT
-    end
-    if legacyUpright == false then
-        return Options.FLAT
-    end
-    if barNumber == Layout.MAIN_BAR then
-        return Options.FLAT
-    end
-    return Options.OFF
-end
-
 for barNumber = 1, Layout.MAX_BARS do
-    local choices = {Options.OFF, Options.FLAT, Options.UPRIGHT}
+    local choices = {Config.OFF, Config.FLAT, Config.UPRIGHT}
     if barNumber == Layout.MAIN_BAR then
-        choices = {Options.FLAT, Options.UPRIGHT} -- stands in for the client's own bar: never off
+        choices = {Config.FLAT, Config.UPRIGHT} -- stands in for the client's own bar: never off
     end
     barOptions[barNumber] = addonOptions:choice("bar" .. barNumber)
         :choices(choices)
-        :default(defaultMode(barNumber))
+        :default(Config.mode(nil, barNumber))
         :add()
     buttonOptions[barNumber] = addonOptions:number("bar" .. barNumber .. "buttons")
         :range(1, Layout.SLOTS_PER_BAR)
@@ -47,35 +30,17 @@ for barNumber = 1, Layout.MAX_BARS do
         :add()
 end
 
-function Options.mode(barNumber)
-    return barOptions[barNumber]:value()
-end
-
-function Options.isOn(barNumber)
-    return Options.mode(barNumber) ~= Options.OFF
-end
-
-function Options.isUpright(barNumber)
-    return Options.mode(barNumber) == Options.UPRIGHT
-end
-
--- How many of the bar's twelve slots it shows, from the first.
-function Options.buttonCount(barNumber)
-    return buttonOptions[barNumber]:value()
-end
-
-function Options.countOn()
-    local count = 0
+-- The character on screen's settings into the controls. A write of the value held fires nothing, and the
+-- Changed handlers below skip a value the character already has, so loading never rebuilds a bar.
+function Options.load(session)
     for barNumber = 1, Layout.MAX_BARS do
-        if Options.isOn(barNumber) then
-            count = count + 1
-        end
+        barOptions[barNumber]:value(Config.mode(session, barNumber))
+        buttonOptions[barNumber]:value(Config.buttonCount(session, barNumber))
     end
-    return count
 end
 
 -- A handler on the page runs inside the widget tree of the login that opened Options; the bars stand in
--- every login's HUD, and the client refuses to hold two trees at once. The work runs on the next step.
+-- the login's HUD, another tree, and the client refuses to hold two at once. The work runs on the next step.
 local function runNextStep(work)
     hafen.timer():after(0, work)
 end
@@ -84,12 +49,18 @@ end
 
 local statusLabel -- the line under the rows; nil or dead while the page is closed
 
--- How many bars are on, plus `message` (what the last press did).
+-- Whose bars the rows edit and how many are on, plus `message` (what the last press did).
 function Options.showStatus(message)
-    local count = Options.countOn()
-    local line = count .. " of " .. Layout.MAX_BARS .. " bars on"
-    if count >= Layout.MAX_BARS then
-        line = line .. " -- 144 slots is every one there is"
+    local session = hafen.session():current()
+    local line
+    if Config.ready(session) then
+        local count = Config.countOn(session)
+        line = session:character() .. ": " .. count .. " of " .. Layout.MAX_BARS .. " bars on"
+        if count >= Layout.MAX_BARS then
+            line = line .. " -- 144 slots is every one there is"
+        end
+    else
+        line = "no character is in the world: the rows have nobody's bars to set"
     end
     if message then
         line = line .. " -- " .. message
@@ -115,7 +86,7 @@ local function buttonsTooltip(barNumber)
 end
 
 local function buttonsText(barNumber)
-    local count = Options.buttonCount(barNumber)
+    local count = buttonOptions[barNumber]:value()
     if count == 1 then
         return "1 button"
     end
@@ -124,7 +95,9 @@ end
 
 -- Rebuilt on every visit; nothing built here is kept but statusLabel.
 addonOptions:panel(function(root)
+    Options.load(hafen.session():current())
     root:gap(4)
+    hafen.ui():label():parent(root):text("The bars of the character on screen; every character has their own.")
     for barNumber = 1, Layout.MAX_BARS do
         local row = hafen.ui():row():gap(6):parent(root)
         hafen.ui():dropdown():parent(row):size(90):tooltip(rowTooltip(barNumber)):bind(barOptions[barNumber])
@@ -152,29 +125,52 @@ addonOptions:panel(function(root)
     Options.showStatus()
 end)
 
--- A changed row: the bar is rebuilt everywhere (a rotation or another button count is a different box)
--- and the rest re-synced. A slider drag reports every step; the steps that land on one engine step are
--- rebuilt once.
-local rebuildPending = {} -- [barNumber] = true while a rebuild is queued for the next step
+-- A changed row is the character on screen's: written to their settings, and their bar rebuilt (a
+-- rotation or another button count is a different box). A slider drag reports every step; the steps that
+-- land on one engine step are rebuilt once. A value the character already holds (the controls being
+-- loaded) is nothing to do.
+local rebuildPending = {} -- [session] = { [barNumber] = true } while a rebuild is queued for the next step
 
-local function rebuildNextStep(barNumber)
-    if rebuildPending[barNumber] then
+local function rebuildNextStep(session, barNumber)
+    local pending = rebuildPending[session]
+    if not pending then
+        pending = {}
+        rebuildPending[session] = pending
+    end
+    if pending[barNumber] then
         return
     end
-    rebuildPending[barNumber] = true
+    pending[barNumber] = true
     runNextStep(function()
-        rebuildPending[barNumber] = nil
-        Actionbars.Bars.destroyEverywhere(barNumber)
-        Actionbars.Sync.syncAll()
+        pending[barNumber] = nil
+        Actionbars.Bars.destroy(session, barNumber)
+        Actionbars.Sync.syncSession(session)
+        Actionbars.Sync.syncHotkeys()
         Options.showStatus()
     end)
 end
 
 for barNumber = 1, Layout.MAX_BARS do
-    barOptions[barNumber]:on("Changed", function()
-        rebuildNextStep(barNumber)
+    barOptions[barNumber]:on("Changed", function(mode)
+        local session = hafen.session():current()
+        if not Config.ready(session) then
+            Options.showStatus()
+            return
+        end
+        if Config.mode(session, barNumber) ~= mode then
+            Config.setMode(session, barNumber, mode)
+            rebuildNextStep(session, barNumber)
+        end
     end)
-    buttonOptions[barNumber]:on("Changed", function()
-        rebuildNextStep(barNumber)
+    buttonOptions[barNumber]:on("Changed", function(count)
+        local session = hafen.session():current()
+        if not Config.ready(session) then
+            Options.showStatus()
+            return
+        end
+        if Config.buttonCount(session, barNumber) ~= count then
+            Config.setButtonCount(session, barNumber, count)
+            rebuildNextStep(session, barNumber)
+        end
     end)
 end

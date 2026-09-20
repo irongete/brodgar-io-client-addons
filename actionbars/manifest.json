@@ -7,7 +7,7 @@
   "api_version": "1.0",
   "files": [
     "layout.lua",
-    "positions.lua",
+    "config.lua",
     "options.lua",
     "slots.lua",
     "hotkeys.lua",

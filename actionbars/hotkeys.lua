@@ -3,7 +3,6 @@
 -- so a bar turned off and on again (or a :reload) gets its keys back.
 
 local Layout = Actionbars.Layout
-local Options = Actionbars.Options
 local Slots = Actionbars.Slots
 
 local Hotkeys = {}
@@ -46,12 +45,12 @@ function Hotkeys.unbind(barNumber)
     subscriptions[barNumber] = nil
 end
 
--- The key bound to each button; nil while unbound. Read on a timer rather than in Draw: twelve registry
--- lookups per bar per frame, for a string that changes only when the user remaps.
+-- The key bound to each button of the bars declared; nil while unbound. Read on a timer rather than in
+-- Draw: twelve registry lookups per bar per frame, for a string that changes only when the user remaps.
 function Hotkeys.refreshLabels()
     local refreshed = {}
     for barNumber = 1, Layout.MAX_BARS do
-        if Options.isOn(barNumber) then
+        if subscriptions[barNumber] then
             local barLabels = {}
             for slotIndex = 1, Layout.SLOTS_PER_BAR do
                 local binding = keybindings:binding():get(Hotkeys.name(barNumber, slotIndex))

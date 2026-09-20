@@ -1,8 +1,9 @@
--- The bars follow the options: per login, the client's own belt is hidden and the bars built or destroyed;
--- hotkeys are declared for the bars that are on. Reset puts every bar back mid-screen.
+-- The bars follow each character's settings: per login, the client's own belt is hidden and the bars built
+-- or destroyed; hotkeys are declared for the bars the character on screen has on, and the options page is
+-- loaded with that character's settings. Reset puts every bar back mid-screen.
 
 local Layout = Actionbars.Layout
-local Positions = Actionbars.Positions
+local Config = Actionbars.Config
 local Options = Actionbars.Options
 local Hotkeys = Actionbars.Hotkeys
 local Bars = Actionbars.Bars
@@ -56,19 +57,37 @@ function Sync.syncSession(session)
     Bars.sync(session)
 end
 
-function Sync.syncAll()
-    Bars.forgetDeadSessions()
-    for _, session in ipairs(hafen.session():list()) do
-        Sync.syncSession(session)
-    end
+-- The hotkeys are the character on screen's: declared for the bars they have on, and the corner labels
+-- re-read after the declarations (an undeclared binding reads no key).
+function Sync.syncHotkeys()
+    local session = hafen.session():current()
     for barNumber = 1, Layout.MAX_BARS do
-        if Options.isOn(barNumber) then
+        if Config.isOn(session, barNumber) then
             Hotkeys.bind(barNumber)
         else
             Hotkeys.unbind(barNumber)
         end
     end
-    Hotkeys.refreshLabels() -- after the declarations: an undeclared binding reads no key
+    Hotkeys.refreshLabels()
+end
+
+function Sync.syncAll()
+    Bars.forgetDeadSessions()
+    for _, session in ipairs(hafen.session():list()) do
+        Sync.syncSession(session)
+    end
+    Sync.syncHotkeys()
+    Options.load(hafen.session():current())
+    Options.showStatus()
+end
+
+-- A login entering the world, as a character it may not have played before this session: whatever bars
+-- it had are the last character's and go, and its own are built from its settings.
+function Sync.enteredWorld(session)
+    for barNumber = 1, Layout.MAX_BARS do
+        Bars.destroy(session, barNumber)
+    end
+    Sync.syncAll()
 end
 
 -- ---------------------------------------------------------------- reset
@@ -85,8 +104,8 @@ local function resetSession(session)
 
     local stackHeight = 0
     for barNumber = 1, Layout.MAX_BARS do
-        if Options.isOn(barNumber) then
-            local _, boxHeight = Layout.barBox(Options.isUpright(barNumber), Options.buttonCount(barNumber))
+        if Config.isOn(session, barNumber) then
+            local _, boxHeight = Layout.barBox(Config.isUpright(session, barNumber), Config.buttonCount(session, barNumber))
             if stackHeight > 0 then
                 stackHeight = stackHeight + Layout.STACK_GAP
             end
@@ -96,20 +115,20 @@ local function resetSession(session)
 
     local y = math.max(0, math.floor((screenHeight - stackHeight) / 2))
     for barNumber = 1, Layout.MAX_BARS do
-        if Options.isOn(barNumber) then
-            local boxWidth, boxHeight = Layout.barBox(Options.isUpright(barNumber), Options.buttonCount(barNumber))
-            local record = Positions.recordFor(session, barNumber, boxWidth, boxHeight, screenWidth, screenHeight)
+        if Config.isOn(session, barNumber) then
+            local boxWidth, boxHeight = Layout.barBox(Config.isUpright(session, barNumber), Config.buttonCount(session, barNumber))
+            local record = Config.placed(session, barNumber, boxWidth, boxHeight, screenWidth, screenHeight)
             if not record then
                 return false
             end
-            local centredX = Positions.centre(boxWidth, boxHeight, screenWidth, screenHeight)
+            local centredX = Config.centre(boxWidth, boxHeight, screenWidth, screenHeight)
             record.x = centredX
             record.y = y
             y = y + boxHeight + Layout.STACK_GAP
             Bars.move(session, barNumber)
         end
     end
-    Positions.save(session)
+    Config.save(session)
     return true
 end
 

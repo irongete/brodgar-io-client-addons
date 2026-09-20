@@ -25,6 +25,11 @@ one per bar, and each row says what that bar is — `off`, `flat` or `upright` �
 how many buttons it shows, 1 to 12. There is nothing to open, nothing to place and nothing to close, and the
 page is the same page every other setting in the client is edited on.
 
+**The rows are the character on screen's.** Every character has bars of their own: which are on, which way
+they stand, how many buttons and where. One you have never played with starts with Actionbar1 alone, flat,
+in the middle of the screen, and nothing from any other character. The page edits whoever is on screen —
+the line under the rows names them — and switching to another character switches the rows to theirs.
+
 A row is a fact about one page of the belt, which is why there are twelve of them rather than a list with an
 `Add` button under it: a bar's number is its identity, so turning Actionbar4 on is a different thing from
 "add a bar", and a bar you turn off and back on comes back with its own slots, its own keys and the place you
@@ -113,8 +118,8 @@ is forced rather than chosen: the action menu ends its drag on the *session's* w
 layer is a tree of its own that the drop never reaches. A bar built there would draw and click perfectly,
 and every action you dragged at it would fall straight through into the map.
 
-So a bar is built for each character as it enters the world and goes with it. What you see is one bar per
-character, all carrying the same number and the same slots, each standing where that character last left it.
+So a bar is built for each character as it enters the world and goes with it, from that character's own
+settings: which bars, which way, how many buttons and where each stands.
 
 ## Keys
 
@@ -173,15 +178,12 @@ The client asks you to approve them the first time you enable the addon.
 
 ## What it saves
 
-**Where each bar stands** is a saved variable of the **character**: each character keeps their own places,
-and a bar you drag on one stays put on the others. A bar keeps its place while it is off, so turning it back
-on puts it where you left it. A character showing a bar for the first time gets the place versions before
-1.0.3 kept for the whole client, if there is one, else the middle of the screen.
-
-**Which bars are on, which way round they stand and how many buttons each shows** is not saved here at all —
-it is what the twelve rows hold, and a row's values belong to the client, exactly like the interface scale or
-a volume. They survive a `:reload`, a disable and a restart, and this addon can neither wipe them nor has to
-save them.
+**Everything about a character's bars** — which are on, which way round they stand, how many buttons each
+shows and where each stands — is one saved variable of the **character**. Each character keeps their own; a
+bar you drag or set on one changes nothing on another, and a character you have never played with starts
+with Actionbar1 alone, flat, mid-screen. A bar keeps its place and its settings while it is off, so turning
+it back on puts it back as it was. The twelve rows on the options page are a view of the character on
+screen's variable, not a store of their own.
 
 The *contents* of the slots are neither: they are the server's, kept per character, and this addon neither
 copies them nor needs to — a bar is a window onto slots that were already there.

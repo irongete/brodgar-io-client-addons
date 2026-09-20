@@ -2,7 +2,7 @@
 --
 -- The manifest runs the files in order into one environment; each adds its module under `Actionbars`:
 --   layout.lua     constants and geometry (this file)
---   positions.lua  where each bar stands, saved per character
+--   config.lua     one character's bars: on or off, flat or upright, how many buttons, where -- saved per character
 --   options.lua    the twelve rows (mode and button count) on Options > AddOns > Actionbars, and the page
 --   slots.lua      bar button -> belt slot, and pressing one
 --   hotkeys.lua    "Actionbar<N> slot <I>" keybindings and the corner labels

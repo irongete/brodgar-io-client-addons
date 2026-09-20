@@ -3,7 +3,7 @@
   "name": "Simple Minimap",
   "version": "1.0.0",
   "author": "brodgar",
-  "description": "Puts the corner minimap in a window of its own: dragged by its title, sized by the client's corner grip, and dressed by any theme as the window it is.",
+  "description": "Puts the corner minimap in a bare panel of its own, the claim, province and icon buttons in a row above it: no title, no close button, dragged from anywhere on it, sized by a grip in its corner, and dressed by any theme that names it.",
   "api_version": "1.0",
   "files": ["main.lua"]
 }

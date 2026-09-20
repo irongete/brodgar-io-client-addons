@@ -1,229 +1,233 @@
--- Simple Minimap -- the client's own minimap, in a window of ours.
+-- Simple Minimap: the client's own corner minimap, moved into a panel of this addon's.
 --
--- The client hangs its minimap in the bottom-left corner, inside a carved plate it blits over the map, in a
--- panel that cannot be moved and a box that cannot be sized. This addon TAKES that widget -- the same
--- CornerMap, still the client's -- into a window of its own, and then does what a window can do: stands
--- where you drag it by its title, sizes where you pull its corner, and wears whatever frame the client, or
--- a theme, gives its windows.
+-- The CornerMap widget stays the client's -- clicks walk, the wheel zooms, icons and tooltips are its own --
+-- and is re-parented into a bare hafen.ui():widget() of ours. Nothing here draws a map.
 --
--- NOTHING HERE DRAWS A MAP. A click still walks you there, the wheel still zooms, the icons, the markers
--- and the tooltips are all still the client's. That is the whole point of taking the widget rather than
--- standing in for it: its picture is a render of the map database, and no addon could reproduce it.
+-- The panel is a frame around the map and nothing else. It is not a window: a window's decoration keeps a
+-- caption band and a caption plate whether there is a caption or not, and a close button that would destroy
+-- the map with it. A bare surface has none of that. Its look is a stock -- the client's own plain box over
+-- the client's own window field -- that any rule naming [name=simple-minimap/map] beats, property by
+-- property. A bare field of ours under everything else is its drag handle, so a press that neither the map
+-- nor a button takes moves it, and a grip of ours in the bottom-right corner, drawn with the client's own
+-- sizer, resizes it.
 --
---     window ┌─ Minimap ─────────────────── x ┐   <- the client's own frame, or a theme's window.frame
---            │ ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │
---            │ ░┌──────────────────────────┐░ │
---            │ ░│         CornerMap        │░ │   <- the CLIENT's widget, taken in with widget:parent(win)
---            │ ░└──────────────────────────┘░ │
---            │ ░░░░░░░░░░░░░░░░░░░░░░░░░░░░ ◢ │   <- the client's own corner grip: window:resizable(true)
---            └────────────────────────────────┘
+-- Above the map stands a row of the corner's own buttons: personal claims, village claims, provinces and icon
+-- settings. They are the client's MenuCheckBox widgets, moved into the panel as the map is, so the tick, the
+-- tooltip, the keybinding and what a press does stay the client's. The Map button is left in the corner: the
+-- big map has its own key.
 --
--- IT IS A WINDOW, NOT A SURFACE, AND THE CHROME IS WHAT THAT BUYS. A hafen.ui():widget() has no frame, so
--- a surface has to bring its own handles -- a strip to drag it by, a corner of its own to size it, a box
--- it declares for a theme to find. A window's frame already has all three: the caption drags it, the
--- corner grip sizes it, and the frame is the client's own art or a theme's `window.frame`. So there is
--- nothing here to dress and nothing a theme has to learn: `window[title=Minimap]` names it, as it names
--- any window.
---
--- THE GRIP DRIVES THE WINDOW, AND THE MAP FOLLOWS. The client's corner grip writes the window's content
--- box, so the map is kept the box's size less a margin from Update, live, and the floor is written once,
--- on release, in "Resized" -- during the drag the grip and a floor would take turns writing the size.
---
--- THE MARGIN IS FOR THE GRIP. The grip is a 25-px triangle in the content area's bottom-right corner,
--- drawn by the frame UNDER the content and offered a press AFTER it -- a map that reached the corner would
--- take every press meant for the grip and hide its glyph. PAD design px of the window's own field between
--- the map and the content box's edge, added to the frame's own margin outside it, leave the corner to the
--- grip: with the client's frame the whole triangle, with a theme's all but a sliver.
---
--- WHAT IS LEFT IN THE CORNER: NOTHING, AND IT IS THE TWO PANELS THAT SAY SO. The carved plate, the fold
--- arrows and the map/claim/icon buttons are not one widget and not one family -- the plate and one arrow
--- hang in the panel the map came out of, the buttons and two more arrows in the panel beside it. Hiding the
--- buttons alone leaves an arrow floating over an empty corner, because that arrow is their SIBLING and not
--- their child. So what is put away is the two panels themselves, which is legal precisely because the map
--- has already left the first one, and both are given back by hand when this stops.
+-- While it runs the client's corner is put away: the plate the map came out of and the panel with the
+-- map/claim/icon buttons. They go as two whole panels because the fold arrows are the buttons' siblings, not
+-- their children -- hiding the buttons alone would leave an arrow over an empty corner. Both come back on
+-- Disable.
 
-local TITLE = "Minimap"             -- the caption: the handle you drag it by, and its name to a theme
-local PAD   = 4                     -- the window's field between the map and the content box's edge
-local MIN   = 64                    -- a map smaller than this is one you cannot read
+local EDGE = 8     -- the box's corners (gfx/hud/wnd, 32 px at scale 4): what the frame art needs
+local PAD  = EDGE + 2   -- the frame and a little air: where the map and the row start
+local MIN  = 64    -- a smaller map cannot be read
+local GRIP = 25    -- the client's sizer, drawn by our grip in the panel's bottom-right corner
 
-local saved = hafen.store():var("state")
-if saved.on == nil then saved.on = true end
+-- Each of the corner's buttons is one picture the size of the whole corner panel (416x272 at scale 4, so
+-- 104x68 design px), transparent but for its own button, and the client routes a press by the picture's alpha.
+-- The box is where that button lies in the picture; the widget is placed so the box lands in its slot, and the
+-- rest of the picture hangs out of the row drawing nothing and taking no press.
+local BUTTONS = {
+  {picture = "gfx/hud/lbtn-claim", x = 1,  y = 14, w = 22, h = 21},   -- Display personal claims
+  {picture = "gfx/hud/lbtn-vil",   x = 25, y = 23, w = 22, h = 21},   -- Display village claims
+  {picture = "gfx/hud/lbtn-rlm",   x = 49, y = 25, w = 22, h = 21},   -- Display provinces
+  {picture = "gfx/hud/lbtn-ico",   x = 32, y = 45, w = 22, h = 21},   -- Icon settings
+}
+local SLOT  = 22   -- one button's slot in the row
+local GAP   = 2    -- the air between two slots
+local ROW   = 24   -- the row's height, above the map: a button and a little air
+local ROW_W = #BUTTONS * SLOT + (#BUTTONS - 1) * GAP
+local MIN_W = math.max(MIN, ROW_W)   -- the map is never narrower than the row above it
 
-local dressed = {}                  -- one record per character, each with that character's own map
+local saved = hafen.store():var("state")   -- x, y: where the panel stands; w, h: the map's size
 
--- THE STEP, AND NOT THE PRESS. The X's Close handler and a console line each run inside one character's
--- tree, and the other characters' windows stand in other trees, which no handler may take while it holds
--- one (api/threading.md). hafen.timer():after(0, fn) is the next step, holding none.
-local function step(fn)
-  hafen.timer():after(0, fn)
-end
+local dressed = {}   -- one record per character in the world: its map, its panel and the corner it came out of
 
--- ---------------------------------------------------------------- the corner's own furniture
-
-local function put(w, vis)
-  if w and w:exists() then
-    local ok, err = pcall(function() w:visible(vis) end)
-    if not ok then hafen.log():write("Simple Minimap: " .. tostring(err)) end
+-- Show or hide one of the corner's own panels. The write is refused when another addon already holds the
+-- panel; the map is in our panel either way, so the refusal is left alone.
+local function put(widget, shown)
+  if widget and widget:exists() then
+    pcall(function() widget:visible(shown) end)
   end
 end
 
--- ---------------------------------------------------------------- on and off
+-- The panel's box for a map of this size, and back.
+local function boxFor(width, height)
+  return width + PAD * 2, height + PAD * 2 + ROW
+end
 
--- Every frame, on the step: the map follows the box the grip writes, and where the caption drag left the
--- window is remembered. The title-bar drag is the client's own and fires nothing of ours, so it is read
--- back here -- against the place THIS window was last seen at, not against the saved one: two characters'
--- windows share the saved place but stand where each was dragged to -- and written to disk once, the frame
--- after it stops moving.
-local function follow(r)
-  if not (r.panel and r.panel:exists() and r.mmap and r.mmap:exists()) then return end
-  local box = r.panel:size()
-  local w, h = math.max(MIN, box.w - PAD * 2), math.max(MIN, box.h - PAD * 2)
-  local now = r.mmap:size()
-  if (now.w ~= w) or (now.h ~= h) then r.mmap:size(w, h) end
-  local at = r.panel:position()
-  if (not r.at) or (at.x ~= r.at.x) or (at.y ~= r.at.y) then
-    local moved = r.at ~= nil
-    r.at = at
-    if moved then
-      saved.x, saved.y = at.x, at.y
-      r.moving = true
+local function mapIn(boxW, boxH)
+  return math.max(MIN_W, boxW - PAD * 2), math.max(MIN, boxH - PAD * 2 - ROW)
+end
+
+-- ---------------------------------------------------------------- the panel
+
+-- Every frame, on the step: the map fills the box the grip writes, the grip stays in the corner and the drag
+-- field stays the panel's size. The resize gesture writes the panel's box with no event of ours until the
+-- release, so it is read back here.
+local function follow(record)
+  local panel, map = record.panel, record.map
+  if not (panel and panel:exists() and map and map:exists()) then return end
+  local box = panel:size()
+  local width, height = mapIn(box.w, box.h)
+  local now = map:size()
+  if now.w ~= width or now.h ~= height then map:size(width, height) end
+  local grip = record.grip
+  if grip and grip:exists() then
+    local gripX, gripY = box.w - EDGE - GRIP, box.h - EDGE - GRIP
+    local at = grip:position()
+    if at.x ~= gripX or at.y ~= gripY then grip:position(gripX, gripY) end
+  end
+  local field = record.field
+  if field and field:exists() then
+    local fieldBox = field:size()
+    if fieldBox.w ~= box.w or fieldBox.h ~= box.h then field:size(box.w, box.h) end
+  end
+end
+
+-- The corner's buttons, by the picture each shows, in the row's order. A button the corner does not have (an
+-- older client) is skipped and its slot left empty.
+local function findButtons(session)
+  local found = {}
+  for _, candidate in ipairs(session:ui():matchAll("@MapMenu @MenuCheckBox")) do
+    for index, spec in ipairs(BUTTONS) do
+      if candidate:picture() == spec.picture then found[index] = candidate end
     end
-  elseif r.moving then
-    r.moving = false
-    hafen.store():flush()
   end
+  return found
 end
 
-local turn                          -- on or off, for every character -- below, after undress
+local function dress(record)
+  if record.panel or not record.map:exists() then return end
+  local box = record.map:size()
+  local width, height = math.max(MIN_W, saved.w or box.w), math.max(MIN, saved.h or box.h)
+  local boxW, boxH = boxFor(width, height)
 
-local function dress(r)
-  if r.panel or not r.mmap:exists() then return end
+  -- Built into the character's own tree: the map reads its session and would go dark in the addon layer.
+  -- Named, which is what a theme's rule points at; the stock is what it looks like until one does.
+  local panel = hafen.ui():widget():name("map"):parent(record.hud)
+    :position(saved.x or 40, saved.y or 40):size(boxW, boxH)
+  panel:stock{
+    bg     = {res = "gfx/hud/wnd/lg/bg", mode = "tile"},
+    border = {box = "gfx/hud/wnd", mode = "tile"},
+  }
+  record.panel = panel
 
-  local b = r.mmap:size()
-  local w = math.max(MIN, saved.w or b.w)
-  local h = math.max(MIN, saved.h or b.h)
+  -- The drag handle: a bare surface the size of the panel, added FIRST so every later child stands over it.
+  -- A handle's press is taken ahead of its own children (the gesture listens on the widget, before its
+  -- mousedown walks them), so the panel itself as the handle would take the map's clicks and the buttons'
+  -- too. As the lowest sibling the field is offered only what the map, a button and the grip let through.
+  local field = hafen.ui():widget():parent(panel):position(0, 0):size(boxW, boxH)
+  panel:draggable(field)
+  record.field = field
 
-  -- Built into the character's OWN tree: the map reads its session, so a window in the addon layer is
-  -- refused as a destination -- and rightly, the widget would go dark there.
-  r.panel = hafen.ui():window():title(TITLE):parent(r.hud)
-                               :position(saved.x or 40, saved.y or 40):size(w + PAD * 2, h + PAD * 2)
-  r.panel:resizable(true)           -- the client's own corner grip, drawn by the frame; a theme's `sizer` dresses it
+  record.map:parent(panel):size(width, height):position(PAD, PAD + ROW)
 
-  r.mmap:parent(r.panel):size(w, h):position(PAD, PAD)
+  -- The row, after the map so a press is offered to a button first; off the button the picture is
+  -- transparent, the client passes the press on, and the panel under it still drags.
+  record.buttons = {}
+  for index, button in pairs(findButtons(record.session)) do
+    local spec = BUTTONS[index]
+    local slotX = PAD + (index - 1) * (SLOT + GAP) + math.floor((SLOT - spec.w) / 2)
+    local slotY = PAD + math.floor((ROW - spec.h) / 2)
+    button:parent(panel):position(slotX - spec.x, slotY - spec.y)
+    record.buttons[#record.buttons + 1] = button
+  end
 
-  -- The corner's two panels go away whole -- see the note at the top: an arrow is the buttons' sibling.
-  put(r.bl, false)
-  put(r.menuPanel, false)
+  -- The grip, last so it is offered a press before the map's corner under it. It draws the client's own
+  -- sizer and resizes the panel; the map follows on the step.
+  local grip = hafen.ui():widget():parent(panel):size(GRIP, GRIP)
+    :position(boxW - EDGE - GRIP, boxH - EDGE - GRIP)
+  grip:on("Draw", function(event) event:g():resource("gfx/hud/wnd/sizer", 0, 0) end)
+  panel:resizable(grip)
+  record.grip = grip
 
-  -- Once, on release: the floor is written here and not during the drag, where the grip and this handler
-  -- would take turns writing the size. The box that stands is the one that is saved.
-  r.panel:on("Resized", function(ev)
-    local bw, bh = math.max(MIN + PAD * 2, ev:w()), math.max(MIN + PAD * 2, ev:h())
-    if (bw ~= ev:w()) or (bh ~= ev:h()) then r.panel:size(bw, bh) end
-    saved.w, saved.h = bw - PAD * 2, bh - PAD * 2
+  put(record.cornerPanel, false)
+  put(record.menuPanel, false)
+
+  panel:on("Dragged", function(event)
+    saved.x, saved.y = event:x(), event:y()
     hafen.store():flush()
   end)
 
-  -- The X -- and Escape while the window has the focus, which is the same door on any window -- means what
-  -- `:simpleminimap` means: the corner is the client's again, until the next `:simpleminimap`. The client
-  -- would destroy the window with the map still inside it; cancelled, it stands until the step undresses it.
-  r.panel:on("Close", function(ev)
-    ev:preventDefault()
-    step(function() turn(false) end)
+  -- Once, on release: the floor is applied here rather than during the drag, where the gesture and this
+  -- handler would take turns writing the size. The box that stands is the one saved.
+  panel:on("Resized", function(event)
+    local minW, minH = boxFor(MIN_W, MIN)
+    local floorW, floorH = math.max(minW, event:w()), math.max(minH, event:h())
+    if floorW ~= event:w() or floorH ~= event:h() then panel:size(floorW, floorH) end
+    saved.w, saved.h = mapIn(floorW, floorH)
+    hafen.store():flush()
   end)
 
-  r.panel:on("Update", function() follow(r) end)
+  panel:on("Update", function() follow(record) end)
 end
 
-local function undress(r)
-  if r.mmap and r.mmap:exists() then
-    r.mmap:parent(nil)                           -- home, whole: parent, order, place and box in one
+local function undress(record)
+  if record.map and record.map:exists() then
+    record.map:parent(nil)   -- home, whole: parent, order, place and box in one
   end
-  if r.panel and r.panel:exists() then
-    r.panel:destroy()                            -- the map is out already; this takes the window and its frame
+  for _, button in ipairs(record.buttons or {}) do
+    if button:exists() then button:parent(nil) end   -- back into the corner's panel, stacked as the client had them
   end
-  r.panel, r.at, r.moving = nil, nil, nil
-  put(r.bl, true)                                  -- ...and the corner is the client's again, whole
-  put(r.menuPanel, true)
-end
-
-turn = function(on)
-  saved.on = on
-  hafen.store():flush()
-  for _, r in ipairs(dressed) do
-    if on then dress(r) else undress(r) end
+  if record.panel and record.panel:exists() then
+    record.panel:destroy()   -- the map and the buttons are out already; this takes the frame, the field and the grip, and ends the gesture
   end
-  hafen.log():write("Simple Minimap: " .. (on and "on, the map is in its own window"
-                                              or "off, the client's corner is back"))
+  record.panel, record.field, record.grip, record.buttons = nil, nil, nil, nil
+  put(record.cornerPanel, true)
+  put(record.menuPanel, true)
 end
 
 -- ---------------------------------------------------------------- the characters
 
-local function record(s)
-  for _, r in ipairs(dressed) do
-    if r.s == s then return r end
+local function findRecord(session)
+  for _, record in ipairs(dressed) do
+    if record.session == session then return record end
   end
   return nil
 end
 
--- One window per character, because the map is one character's widget. The subscription is what handles
--- the client REBUILDING its own map -- it destroys and re-makes the CornerMap when the map file changes --
--- and it fires at once for the map that is already up, so it is the whole of the wiring.
-local function attach(s)
-  if (not s) or record(s) then return end
-  local hud = s:ui():match("@GameUI")
+-- One panel per character, because the map is one character's widget. The client destroys and re-makes the
+-- CornerMap when the map file changes, and the watch fires for the map already up, so it is the whole wiring.
+local function attach(session)
+  if not session or findRecord(session) then return end
+  local hud = session:ui():match("@GameUI")
   if not hud then return end
-  local r = {s = s, hud = hud}
-  dressed[#dressed + 1] = r
-  s:ui():on("@CornerMap", "Added", function(mmap)
-    if r.panel then undress(r) end                -- a rebuilt map: the old window stood round a dead widget
-    r.mmap = mmap
-    r.bl = mmap:parent()                          -- the panel it came out of: the plate and one arrow are in it
-    local menu = s:ui():match("@MapMenu")
-    r.menuPanel = menu and menu:parent() or nil   -- ...and the buttons and two more arrows are in that one
-    if saved.on then dress(r) end
+  local record = {session = session, hud = hud}
+  dressed[#dressed + 1] = record
+  session:ui():on("@CornerMap", "Added", function(map)
+    if record.panel then undress(record) end   -- a rebuilt map: the old panel stood round a dead widget
+    record.map = map
+    record.cornerPanel = map:parent()          -- the panel it came out of: the plate and one arrow
+    local menu = session:ui():match("@MapMenu")
+    record.menuPanel = menu and menu:parent() or nil   -- the buttons and the other two arrows
+    dress(record)
   end)
 end
 
-local function detach(s)
-  for i, r in ipairs(dressed) do
-    if r.s == s then table.remove(dressed, i) return end
+local function detach(session)
+  for index, record in ipairs(dressed) do
+    if record.session == session then
+      table.remove(dressed, index)
+      return
+    end
   end
 end
 
 -- ---------------------------------------------------------------- lifecycle
 
-hafen.event():on("SessionEnteredWorld", function(s) attach(s) end)
-hafen.event():on("SessionRemoved", function(s) detach(s) end)
+hafen.event():on("SessionEnteredWorld", function(session) attach(session) end)
+hafen.event():on("SessionRemoved", function(session) detach(session) end)
 
--- GIVE THE CORNER BACK BY HAND. The engine restores everything this addon holds on its own, but the plate
--- and the buttons are not windows with a toggle: teardown's rule is "the widget ends up as the user was
--- seeing it", and what they were seeing is this window. Disable fires BEFORE the teardown, which is the
--- moment to say that what they should see now is the client's own corner.
+-- The engine restores what the addon holds, but the two corner panels have no toggle of their own: the rule is
+-- "the widget ends up as the user was seeing it", and what they were seeing is this panel. Disable fires
+-- before the teardown, so the corner is given back by hand.
 hafen.event():on("Disable", function()
-  for _, r in ipairs(dressed) do
-    pcall(function() undress(r) end)
+  for _, record in ipairs(dressed) do
+    pcall(undress, record)
   end
   dressed = {}
-end)
-
-hafen.console():on("simpleminimap", function(args)
-  -- `:simpleminimap diag` -- every Hidepanel this character has, whether it is on screen, and what is in
-  -- it. Two of them are this addon's business and five are nobody's; the list says which is which.
-  if args and (args[1] == "diag") then
-    local s = hafen.session():current()
-    if not s then hafen.log():write("Simple Minimap: no character on screen") return end
-    for _, p in ipairs(s:ui():matchAll("@Hidepanel")) do
-      local kids = {}
-      for _, c in ipairs(p:children():list()) do kids[#kids + 1] = c:type() end
-      local at, b = p:position(), p:size()
-      hafen.log():write(("Simple Minimap: %s panel at %d,%d %dx%d [%s]"):format(
-        p:visible() and "shown " or "HIDDEN", at.x, at.y, b.w, b.h, table.concat(kids, " ")))
-    end
-    return
-  end
-
-  -- The line is answered inside one character's tree and the windows stand in every character's, so the
-  -- turn goes to the step, holding none.
-  step(function() turn(not saved.on) end)
 end)

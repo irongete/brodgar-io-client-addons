@@ -75,7 +75,7 @@ version is a commit. If the upload fails the manifest is put back and nothing is
 | `session-manager` | One row per login the client holds: go to that character, log it out, or cycle to the next with a hotkey | `session.close` |
 | `simple-chat` | Replaces the client's chat with a window whose channels are tabs across the top, dragged by its body and resized from the bottom-right corner | `chat.send`, `console.run` |
 | `simple-gob-hider` | One key hides the game objects whose resource is on its list and paints a yellow patch over the ground each of them stands on | — |
-| `simple-minimap` | Puts the corner minimap in the action bars' box: the client's carved plate off, the eight-piece window frame round the map instead | — |
+| `simple-minimap` | Puts the corner minimap in a bare panel of its own, the claim, province and icon buttons in a row above it: no title, no close button, dragged from anywhere on it, sized by a grip in its corner, dressed by any theme that names it | — |
 | `stockpile-controls` | Every window titled "Stockpile" grows a little taller and carries a row of its own below the pile: an amount, and a Take button that draws that many items out of the pile and into your backpack | `widget.send` |
 | `themes` | Loads whole client looks from JSON files in its own `themes/` folder and installs one | — |
 | `translations` | Displays the client in the language you pick in Options ▸ AddOns, and helps you write a new one: with the helper on, every string the language does not name yet is collected while you play, translated one by one in the translator window and exported as the JSON file a language ships as | — |

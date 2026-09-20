@@ -65,8 +65,8 @@ end
 
 -- Widget.Event.dispatch runs the bar's listeners before descending into its children, so this sees every
 -- press before the grip does. A press consumed here never reaches the drag; one left alone picks the bar up.
-local function onPress(session, barNumber, upright, event)
-    local slotIndex = Layout.slotAt(upright, event:x(), event:y())
+local function onPress(session, barNumber, upright, buttonCount, event)
+    local slotIndex = Layout.slotAt(upright, buttonCount, event:x(), event:y())
     local slot = slotIndex and Slots.get(session, barNumber, slotIndex)
 
     -- A right press is the bar's wherever it lands, so the map underneath never sees it. On a button: a
@@ -102,8 +102,8 @@ end
 -- A drag out of the action menu: thing = {kind = "pagina", res = <resource>}. An "addon/..." resource is a
 -- menu entry an addon added (any addon's; the bar is one shared surface): the slot is held for it
 -- client-side, the server never hears. Anything else is written to the slot and echoed back by the server.
-local function onDrop(session, barNumber, upright, event)
-    local slotIndex = Layout.slotAt(upright, event:x(), event:y())
+local function onDrop(session, barNumber, upright, buttonCount, event)
+    local slotIndex = Layout.slotAt(upright, buttonCount, event:x(), event:y())
     if not slotIndex then
         return
     end
@@ -139,23 +139,16 @@ end
 
 -- MouseMove reaches every widget, pointer outside included. Off the box there is nothing to look up, and
 -- `showTooltip` writes only when the text changes, so a pointer on the map costs the two coordinate reads.
-local function onMove(session, barNumber, upright, boxWidth, boxHeight, showTooltip, event)
+local function onMove(session, barNumber, upright, buttonCount, boxWidth, boxHeight, showTooltip, event)
     local x, y = event:x(), event:y()
     if x < 0 or y < 0 or x >= boxWidth or y >= boxHeight then
         showTooltip("")
         return
     end
-    local slotIndex = Layout.slotAt(upright, x, y)
+    local slotIndex = Layout.slotAt(upright, buttonCount, x, y)
     local slot = slotIndex and Slots.get(session, barNumber, slotIndex)
     local slotName = slot and (not slot:empty()) and slot:name()
-    if slotName then
-        showTooltip(slotName)
-    elseif barNumber == Layout.MAIN_BAR and (not slotIndex) and session:exists() then
-        -- The one bar that pages: on its frame, say which page it shows.
-        showTooltip("Actionbar1 -- page " .. session:actionbar():page())
-    else
-        showTooltip("")
-    end
+    showTooltip(slotName or "")
 end
 
 -- ---------------------------------------------------------------- build and destroy
@@ -183,9 +176,13 @@ function Bars.build(session, barNumber)
     end
 
     local upright = Options.isUpright(barNumber)
-    local boxWidth, boxHeight = Layout.barBox(upright)
+    local buttonCount = Options.buttonCount(barNumber)
+    local boxWidth, boxHeight = Layout.barBox(upright, buttonCount)
     local hudSize = hud:size()
-    local record = Positions.recordFor(barNumber, boxWidth, boxHeight, hudSize.w, hudSize.h)
+    local record = Positions.recordFor(session, barNumber, boxWidth, boxHeight, hudSize.w, hudSize.h)
+    if not record then
+        return -- the HUD is up but the character's saved variables are not yet: the next sync builds it
+    end
 
     local barWidget = hafen.ui():widget():parent(hud):size(boxWidth, boxHeight):position(record.x, record.y)
 
@@ -200,9 +197,9 @@ function Bars.build(session, barNumber)
     barWidget:name("bar")
     barWidget:stock{bg = {color = Layout.BAR_BACKGROUND}, border = {box = Layout.FRAME_BOX, mode = "tile"}}
 
-    -- One widget per button, named slot1..slot12 so a theme can address one. Subscribed to Draw only: a
-    -- surface with no input handler is transparent to the mouse, so presses and drops still land on the bar.
-    for slotIndex = 1, Layout.SLOTS_PER_BAR do
+    -- One widget per button shown, named slot1..slot12 so a theme can address one. Subscribed to Draw only:
+    -- a surface with no input handler is transparent to the mouse, so presses and drops still land on the bar.
+    for slotIndex = 1, buttonCount do
         local x, y = Layout.slotOrigin(upright, slotIndex)
         local cell = hafen.ui():widget():parent(barWidget):size(Layout.SQUARE, Layout.SQUARE):position(x, y)
             :name("slot" .. slotIndex)
@@ -213,7 +210,7 @@ function Bars.build(session, barNumber)
     end
 
     barWidget:on("MouseDown", function(event)
-        onPress(session, barNumber, upright, event)
+        onPress(session, barNumber, upright, buttonCount, event)
     end)
     local tooltipShown = ""
     local function showTooltip(text)
@@ -223,21 +220,20 @@ function Bars.build(session, barNumber)
         end
     end
     barWidget:on("MouseMove", function(event)
-        onMove(session, barNumber, upright, boxWidth, boxHeight, showTooltip, event)
+        onMove(session, barNumber, upright, buttonCount, boxWidth, boxHeight, showTooltip, event)
     end)
     barWidget:on("Drop", function(event)
-        onDrop(session, barNumber, upright, event)
+        onDrop(session, barNumber, upright, buttonCount, event)
     end)
     barWidget:on("Dragged", function(event)
-        -- event:x()/y() is where it landed, the client's clamp included. Saved now; every other login's
-        -- copy follows.
-        local dragged = Positions.find(barNumber)
+        -- event:x()/y() is where it landed, the client's clamp included. The place is this character's own:
+        -- nothing of another login is touched here, which a handler running inside this tree could not do.
+        local dragged = Positions.find(session, barNumber)
         if not dragged then
             return
         end
         dragged.x, dragged.y = event:x(), event:y()
-        Positions.save()
-        Bars.moveEverywhere(barNumber)
+        Positions.save(session)
     end)
 
     sessionBars[barNumber] = barWidget
@@ -268,17 +264,13 @@ function Bars.forgetDeadSessions()
     end
 end
 
--- Every login's copy of one bar to its record.
-function Bars.moveEverywhere(barNumber)
-    local record = Positions.find(barNumber)
-    if not record then
-        return
-    end
-    for _, sessionBars in pairs(barsBySession) do
-        local barWidget = sessionBars[barNumber]
-        if barWidget and barWidget:exists() then
-            barWidget:position(record.x, record.y)
-        end
+-- One login's copy of one bar to that character's record.
+function Bars.move(session, barNumber)
+    local record = Positions.find(session, barNumber)
+    local sessionBars = barsBySession[session]
+    local barWidget = record and sessionBars and sessionBars[barNumber]
+    if barWidget and barWidget:exists() then
+        barWidget:position(record.x, record.y)
     end
 end
 

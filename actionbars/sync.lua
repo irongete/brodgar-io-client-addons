@@ -73,34 +73,20 @@ end
 
 -- ---------------------------------------------------------------- reset
 
--- The HUD's size in design px (bar x/y are measured from it), from any login in the world.
-local function screenSize()
-    for _, session in ipairs(hafen.session():list()) do
-        if session:exists() then
-            local hud = session:ui():match("@GameUI")
-            local size = hud and hud:size()
-            if size and size.w > 0 and size.h > 0 then
-                return size.w, size.h
-            end
-        end
+-- One character's bars that are on, centred as one stack in number order, and saved. false with no HUD
+-- size to measure against (a login not yet in the world, or a HUD with no size).
+local function resetSession(session)
+    local hud = session:exists() and session:character() and session:ui():match("@GameUI")
+    local size = hud and hud:size()
+    if not (size and size.w > 0 and size.h > 0) then
+        return false
     end
-    return nil
-end
-
--- Every bar that is on, centred as one stack in number order, and saved. A higher interface scale or a
--- smaller window can leave a bar past the edge with no part of it left to drag; this is the way back.
-function Sync.resetBars()
-    local screenWidth, screenHeight = screenSize()
-    if not screenWidth then
-        Options.showStatus("no character is in the world, so there is no screen to measure and no bar drawn"
-            .. " to put back on it")
-        return
-    end
+    local screenWidth, screenHeight = size.w, size.h
 
     local stackHeight = 0
     for barNumber = 1, Layout.MAX_BARS do
         if Options.isOn(barNumber) then
-            local _, boxHeight = Layout.barBox(Options.isUpright(barNumber))
+            local _, boxHeight = Layout.barBox(Options.isUpright(barNumber), Options.buttonCount(barNumber))
             if stackHeight > 0 then
                 stackHeight = stackHeight + Layout.STACK_GAP
             end
@@ -111,15 +97,39 @@ function Sync.resetBars()
     local y = math.max(0, math.floor((screenHeight - stackHeight) / 2))
     for barNumber = 1, Layout.MAX_BARS do
         if Options.isOn(barNumber) then
-            local boxWidth, boxHeight = Layout.barBox(Options.isUpright(barNumber))
-            local record = Positions.recordFor(barNumber, boxWidth, boxHeight, screenWidth, screenHeight)
+            local boxWidth, boxHeight = Layout.barBox(Options.isUpright(barNumber), Options.buttonCount(barNumber))
+            local record = Positions.recordFor(session, barNumber, boxWidth, boxHeight, screenWidth, screenHeight)
+            if not record then
+                return false
+            end
             local centredX = Positions.centre(boxWidth, boxHeight, screenWidth, screenHeight)
             record.x = centredX
             record.y = y
             y = y + boxHeight + Layout.STACK_GAP
-            Bars.moveEverywhere(barNumber)
+            Bars.move(session, barNumber)
         end
     end
-    Positions.save()
-    Options.showStatus("every bar is back in the middle of the screen")
+    Positions.save(session)
+    return true
+end
+
+-- Every character in the world gets their bars back mid-screen, each measured against their own HUD. A
+-- higher interface scale or a smaller window can leave a bar past the edge with no part of it left to
+-- drag; this is the way back. A character not logged in keeps their places.
+function Sync.resetBars()
+    local resetCount = 0
+    for _, session in ipairs(hafen.session():list()) do
+        if resetSession(session) then
+            resetCount = resetCount + 1
+        end
+    end
+    if resetCount == 0 then
+        Options.showStatus("no character is in the world, so there is no screen to measure and no bar drawn"
+            .. " to put back on it")
+    elseif resetCount == 1 then
+        Options.showStatus("every bar is back in the middle of the screen")
+    else
+        Options.showStatus("every bar is back in the middle of the screen, on all " .. resetCount
+            .. " characters in the world")
+    end
 end

@@ -2,8 +2,8 @@
 --
 -- The manifest runs the files in order into one environment; each adds its module under `Actionbars`:
 --   layout.lua     constants and geometry (this file)
---   positions.lua  where each bar stands, saved per account
---   options.lua    the twelve rows on Options > AddOns > Actionbars, and the page itself
+--   positions.lua  where each bar stands, saved per character
+--   options.lua    the twelve rows (mode and button count) on Options > AddOns > Actionbars, and the page
 --   slots.lua      bar button -> belt slot, and pressing one
 --   hotkeys.lua    "Actionbar<N> slot <I>" keybindings and the corner labels
 --   bars.lua       the widgets of one bar, one copy per login
@@ -23,7 +23,11 @@ Layout.SQUARE = 34 -- the client's inventory square, design px
 Layout.ICON = 32 -- the square less its one-pixel ring
 Layout.GAP = 2 -- between squares, as the F-key belt spaces them
 Layout.PITCH = Layout.SQUARE + Layout.GAP
-Layout.BAR_LENGTH = (Layout.SLOTS_PER_BAR * Layout.PITCH) - Layout.GAP
+
+-- Length of a run of `buttonCount` squares, the gutters between them included and none after the last.
+function Layout.barLength(buttonCount)
+    return (buttonCount * Layout.PITCH) - Layout.GAP
+end
 
 Layout.DEFAULT_X = 200 -- a new bar while the HUD has no size to centre it on
 Layout.DEFAULT_Y = 120
@@ -44,16 +48,18 @@ Layout.COOLDOWN_COLOR = {255, 255, 255, 64} -- the recharge pie, as the action m
 -- and a 146 px texture stretched over a 430 px bar smears.
 Layout.BAR_BACKGROUND = {43, 51, 44, 127}
 
--- Flat and upright are the same twelve squares with the axes swapped. The swap happens in these three
--- functions only; nothing else knows which way a bar stands.
+-- Flat and upright are the same squares with the axes swapped. The swap happens in these three functions
+-- only; nothing else knows which way a bar stands. A bar shows its first `buttonCount` slots (1..12, an
+-- option per bar); the rest of its page stays on the server, reachable by hotkey.
 
--- Outer box of a bar.
-function Layout.barBox(upright)
+-- Outer box of a bar showing `buttonCount` buttons.
+function Layout.barBox(upright, buttonCount)
     local inset = Layout.PADDING * 2
+    local length = Layout.barLength(buttonCount)
     if upright then
-        return Layout.SQUARE + inset, Layout.BAR_LENGTH + inset
+        return Layout.SQUARE + inset, length + inset
     end
-    return Layout.BAR_LENGTH + inset, Layout.SQUARE + inset
+    return length + inset, Layout.SQUARE + inset
 end
 
 -- Top-left of button `slotIndex`, in bar coordinates.
@@ -65,9 +71,9 @@ function Layout.slotOrigin(upright, slotIndex)
     return Layout.PADDING + offset, Layout.PADDING
 end
 
--- The button under a point in bar coordinates, or nil on the frame, the margin or a gutter. The one hit test
--- behind pressing, dropping and the tooltip.
-function Layout.slotAt(upright, x, y)
+-- The button under a point in bar coordinates, or nil on the frame, the margin, a gutter or past the last
+-- button shown. The one hit test behind pressing, dropping and the tooltip.
+function Layout.slotAt(upright, buttonCount, x, y)
     local along, across
     if upright then
         along, across = y - Layout.PADDING, x - Layout.PADDING
@@ -78,7 +84,7 @@ function Layout.slotAt(upright, x, y)
         return nil
     end
     local slotIndex = math.floor(along / Layout.PITCH) + 1
-    if slotIndex > Layout.SLOTS_PER_BAR then
+    if slotIndex > buttonCount then
         return nil
     end
     if (along - ((slotIndex - 1) * Layout.PITCH)) >= Layout.SQUARE then

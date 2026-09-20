@@ -9,20 +9,21 @@ the other eleven pages on screen at the same time, lying flat or standing uprigh
 |---|---|
 | set a row to `flat` or `upright` in **Options ▸ AddOns ▸ Actionbars** | puts that bar on screen, lying that way: a new one in the middle of the screen, one you had back where you left it |
 | set a row to `off` | takes that bar away. What is in its slots stays on the server, untouched |
-| press `Reset bars position` | puts every bar back in the middle of the screen, one under the next |
+| press `Reset bars position` | puts every bar back in the middle of the screen, one under the next, for every character in the world |
+| drag a row's slider | sets how many buttons that bar shows, 1 to 12, from its first slot |
 | press `Go to page N` | pages Actionbar1, the way it pages the client's own bar |
 | drag an action onto a button | puts it in that slot |
 | left-click a button | fires it, modifiers and all |
 | right-click a button | empties it — or hands back a slot held for an addon's own menu entry |
-| **drag the bar anywhere but a filled button** | moves it; where you drop it is where it stands on every character |
+| **drag the bar anywhere but a filled button** | moves it; where you drop it is where it stands for that character |
 | rest the pointer on a button | names what is in it |
 
 ## The settings are the client's own page
 
 **Options ▸ AddOns ▸ Actionbars is the whole of it.** This addon has no window: the page holds twelve rows,
-one per bar, and each row says what that bar is — `off`, `flat` or `upright`. There is nothing to open,
-nothing to place and nothing to close, and the page is the same page every other setting in the client is
-edited on.
+one per bar, and each row says what that bar is — `off`, `flat` or `upright` — and, on a slider beside it,
+how many buttons it shows, 1 to 12. There is nothing to open, nothing to place and nothing to close, and the
+page is the same page every other setting in the client is edited on.
 
 A row is a fact about one page of the belt, which is why there are twelve of them rather than a list with an
 `Add` button under it: a bar's number is its identity, so turning Actionbar4 on is a different thing from
@@ -47,7 +48,7 @@ twelve rows and there is no thirteenth to turn on.
 
 **Actionbar1 is the exception, and it pages.** It stands in for the bar the client draws, so it does what
 that bar did: it shows **whichever page you are on**, and the client's page keys (`Alt+3` turns to page 3)
-move it to slots 25–36. Hover its frame and the tooltip says which page it is showing.
+move it to slots 25–36.
 
 So the main bar is the one that moves and the other eleven are the ones that stay. That is the point of
 having both: one bar that follows the page the way the game's own always did, and as many nailed-down ones
@@ -79,13 +80,21 @@ is the drag's loss, and one it leaves alone reaches the drag handle underneath, 
 
 Each bar's own row says which way it stands, and choosing the other one rotates it.
 Bars are independent: a long flat bar under the map and two short upright ones down the side is an ordinary
-arrangement. Rotating keeps the bar's number, its slots and its keys — it is the same twelve buttons, laid
-out the other way.
+arrangement. Rotating keeps the bar's number, its slots and its keys — it is the same buttons, laid out the
+other way.
+
+## Fewer buttons
+
+Each row's slider says how many of the bar's twelve slots it shows, from the first: a bar set to 4 is four
+squares long and carries slots 1–4 of its page. The other eight are not gone — the server keeps what is in
+them, their hotkeys still fire, and moving the slider back up shows them again with their contents. A shorter
+bar keeps the place its first square stood at; it grows and shrinks from there.
 
 ## When a bar has gone off the edge
 
 `Reset bars position` on the settings page puts **every bar back in the middle of the screen**, one under the
-next in the order of their numbers, and saves them there.
+next in the order of their numbers, and saves them there. It does so for every character in the world, each
+measured against their own HUD; a character not logged in keeps their places.
 
 It is there because a bar's place is written in the client's own design pixels, and the screen measured in
 those shrinks when you raise the **Interface scale**: the art is drawn larger, so fewer of them fit across
@@ -105,8 +114,7 @@ layer is a tree of its own that the drop never reaches. A bar built there would 
 and every action you dragged at it would fall straight through into the map.
 
 So a bar is built for each character as it enters the world and goes with it. What you see is one bar per
-character, all carrying the same number and the same slots, all standing in the same place — drag one and
-the others follow.
+character, all carrying the same number and the same slots, each standing where that character last left it.
 
 ## Keys
 
@@ -165,13 +173,15 @@ The client asks you to approve them the first time you enable the addon.
 
 ## What it saves
 
-**Where each bar stands** is the addon's own saved variable, kept for the **account**: the same places on
-every character, and a bar you drag on one moves on all of them. A bar keeps its place while it is off, so
-turning it back on puts it where you left it.
+**Where each bar stands** is a saved variable of the **character**: each character keeps their own places,
+and a bar you drag on one stays put on the others. A bar keeps its place while it is off, so turning it back
+on puts it where you left it. A character showing a bar for the first time gets the place versions before
+1.0.3 kept for the whole client, if there is one, else the middle of the screen.
 
-**Which bars are on and which way round they stand** is not saved here at all — it is what the twelve rows
-hold, and a row's value belongs to the client, exactly like the interface scale or a volume. It survives a
-`:reload`, a disable and a restart, and this addon can neither wipe it nor has to save it.
+**Which bars are on, which way round they stand and how many buttons each shows** is not saved here at all —
+it is what the twelve rows hold, and a row's values belong to the client, exactly like the interface scale or
+a volume. They survive a `:reload`, a disable and a restart, and this addon can neither wipe them nor has to
+save them.
 
 The *contents* of the slots are neither: they are the server's, kept per character, and this addon neither
 copies them nor needs to — a bar is a window onto slots that were already there.

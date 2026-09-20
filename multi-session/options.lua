@@ -374,7 +374,7 @@ client_options:panel(function(root_container)
 
   local show_current_checkbox = hafen.ui():check()
     :parent(root_container)
-    :text("Show the character on screen")
+    :text("Show the current character")
     :bind(show_current_option)
 
   show_current_checkbox:on("Changed", function()

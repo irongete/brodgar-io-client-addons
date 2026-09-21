@@ -1,53 +1,17 @@
--- Hitboxes -- one key cycles the footprints of everything in view through three modes: off, laid on the
--- ground, and drawn through everything standing in front of them. Assign the key in
--- Options > Keybindings > Hitboxes.
+-- Hitboxes: lays a ground patch on the footprint (gob:hitbox()) of every game object in view and of the
+-- building being placed. Three modes, cycled with the key assigned in Options > Game > Keybindings >
+-- Hitboxes: "off", "ground" (the world hides the patch) and "over" (patch:occluded(false)).
 --
--- The shape is gob:hitbox() in all three, the rings the object's own resource carries, and BOTH drawing
--- modes are the same patches on the same ground: hafen.virtual():patch() lies on the terrain with no float
--- and no gap, follows a slope, and one anchored to a Gob moves and ends with that object -- so this addon
--- keeps almost no bookkeeping of its own. The MODE is one flag on those patches:
---
---   ground  the world may hide it, which is what a patch does until it is told otherwise. A box behind a
---           wall is behind the wall and a box under a house is under it, so you read the boxes as part of
---           the world.
---   over    patch:occluded(false) -- the hills, the walls and the houses in front of a ring stop cutting it,
---           so a box inside a barn or over the brow of a hill is drawn whole, which is the point of the
---           mode. It is STILL on the ground: the same ring on the same relief with one test switched off,
---           not a flat shape thrown over the screen. And the interface is still over it, because a patch is
---           drawn inside the world and your windows are drawn after the world is finished -- so the boxes
---           never cover your inventory.
---
--- Everything else about how a box LOOKS -- the fill's colour and how much of the ground reads through it,
--- the rim's colour and how thick it is -- is four rows on the page, and not this file's to decide. Both
--- modes wear the same look, so what the page shows is what you get in either one and the mode is the flag
--- alone.
---
--- A look being a look, every one of those five rows re-dresses the patches already down rather than taking
--- them up: a tint, a border and the flag cost no terrain work, where laying a box again re-cuts every tile
--- under it. Only `off` lays and drops.
---
--- With the world not hiding them, two rings that overlap stack in whatever order the client draws them in,
--- and that order is not this addon's to set. Every box wears the same colours, so the picture is the same
--- either way.
---
--- The building you are PLACING wears a box in both. That one is not a game object -- it is the client's own
--- ghost on the cursor, in no session's object cache -- so it is read from the world rather than found among
--- the gobs: s:world():placing() is the handle, and placing:hitbox() is the same rings in the same units.
---
--- gob:hitbox() answers nil for a resource that carries no shape at all -- a decoration, most flooring --
--- and those are simply not drawn: there is no hitbox to show. Nor does a shape coming back mean the object
--- blocks movement; a felled log has a click-box and no collision. This addon draws what the verb answers.
+-- Every setting is an addon option (Options > AddOns > Hitboxes). The key only rotates the mode option;
+-- the option's Changed handler is the single path into and out of a mode.
 
-local RESCAN = 2                    -- seconds between full re-reads
-local TURN   = 0.2                  -- seconds between facing corrections -- see spin()
-local SETTLE = 0.1                  -- seconds a look row waits before the boxes are re-dressed -- see soon()
+local RESCAN_SECONDS = 2        -- between full sweeps of the gob list
+local FACING_SECONDS = 0.2      -- between facing corrections, see correctFacing()
+local SETTLE_SECONDS = 0.1      -- a look change waits this long before the patches are re-dressed
 
 local MODES = {"off", "ground", "over"}
 
--- THE PALETTE THE TWO DROPDOWNS OFFER. The client's controls are a checkbox, a slider, a dropdown, a radio,
--- a text field, a button and a label, and none of them is a colour well -- so a colour is picked BY NAME
--- here and looked up when a patch is dressed. `blue` and `sky` are the two this addon has always drawn and
--- they are the defaults, so a client whose owner never opens the page looks exactly as it always did.
+-- The client has no colour control, so fill and border colours are picked by name.
 local COLOURS = {
   {"blue",   { 60, 140, 255}},
   {"sky",    {120, 190, 255}},
@@ -63,348 +27,290 @@ local COLOURS = {
   {"pink",   {255, 120, 200}},
 }
 
-local NAMES, RGB = {}, {}
-for i, c in ipairs(COLOURS) do NAMES[i], RGB[c[1]] = c[1], c[2] end
-
--- WHAT THE BOXES ARE AND HOW THEY LOOK IS A SETTING, so all five are declared where the client keeps
--- settings: one page, Options > AddOns > Hitboxes. The options are the WHOLE of the state -- this addon
--- holds no variable of its own beside them, and the key below moves the mode option rather than something
--- of its own -- so the page and the boxes cannot disagree, and neither can say something the other does not.
---
--- Every one of them is remembered, because the client stores what an option holds. A client left drawing
--- orange footprints comes back drawing orange footprints.
-local opts = hafen.client():options():addon()
-
-local modeOpt  = opts:choice("mode"):choices(MODES):default(MODES[1]):add()
-local fillOpt  = opts:choice("fill"):choices(NAMES):default("blue"):add()
-local alphaOpt = opts:number("opacity"):range(0, 100):default(27):add()
-local edgeOpt  = opts:choice("border"):choices(NAMES):default("sky"):add()
-local widthOpt = opts:number("border-width"):range(0, 100):default(35):add()
-
--- THE PAGE. An option draws nothing; what shows it is a control built here, on the column the client hands
--- over each time the page is opened, and BOUND to it: a pick on a dropdown or a pull on a slider writes the
--- option, and a write to the option from anywhere -- the key cycling the mode -- moves the control. The page
--- is rebuilt on every visit, so nothing built here is kept.
---
--- A slider's caption carries its value, because a slider draws no number: the caption is written from the
--- slider's own Changed, which is the user's hand and the only thing that moves these two.
-local function gauge(root, caption, opt, tooltip)
-  local lbl = hafen.ui():label():parent(root):text(caption .. ": " .. opt:value())
-  local sl  = hafen.ui():slider():parent(root):size(160):tooltip(tooltip):bind(opt)
-  sl:on("Changed", function(ev) lbl:text(caption .. ": " .. ev:value()) end)
+local COLOUR_NAMES, COLOUR_RGB = {}, {}
+for index, entry in ipairs(COLOURS) do
+  COLOUR_NAMES[index] = entry[1]
+  COLOUR_RGB[entry[1]] = entry[2]
 end
 
-local function pick(root, caption, opt, tooltip)
+-- ---------------------------------------------------------------- options
+
+local options = hafen.client():options():addon()
+
+local modeOption        = options:choice("mode"):choices(MODES):default(MODES[1]):add()
+local fillOption        = options:choice("fill"):choices(COLOUR_NAMES):default("blue"):add()
+local opacityOption     = options:number("opacity"):range(0, 100):default(27):add()
+local borderOption      = options:choice("border"):choices(COLOUR_NAMES):default("sky"):add()
+local borderWidthOption = options:number("border-width"):range(0, 100):default(35):add()
+
+-- A slider shows no number, so its label carries the value.
+local function addSlider(root, caption, option, tooltip)
+  local label = hafen.ui():label():parent(root):text(caption .. ": " .. option:value())
+  local slider = hafen.ui():slider():parent(root):size(160):tooltip(tooltip):bind(option)
+  slider:on("Changed", function(event) label:text(caption .. ": " .. event:value()) end)
+end
+
+local function addDropdown(root, caption, option, tooltip)
   hafen.ui():label():parent(root):text(caption)
-  hafen.ui():dropdown():parent(root):size(120):tooltip(tooltip):bind(opt)
+  hafen.ui():dropdown():parent(root):size(120):tooltip(tooltip):bind(option)
 end
 
-opts:panel(function(root)
+options:panel(function(root)
   root:gap(4)
-  pick(root, "Footprints", modeOpt,
-       "off, laid on the ground where each object stands, or drawn through everything in front of it")
-  pick(root, "Fill colour", fillOpt, "the colour laid over the ground an object stands on")
-  gauge(root, "Fill opacity", alphaOpt,
-        "per cent: how much of the fill is there, and so how much of the ground reads through it. " ..
-        "0 leaves the rim standing on bare ground, which is a box drawn as an outline")
-  pick(root, "Border colour", edgeOpt, "the rim round the ring, drawn solid whatever the opacity above says")
-  gauge(root, "Border thickness", widthOpt,
-        "hundredths of a world unit, and a tile is 11 of them -- so 35 is a thin line. 0 is the " ..
-        "thinnest line the screen can draw and not no line: to be rid of the rim, give it the fill's colour")
+  addDropdown(root, "Footprints", modeOption,
+              "off, laid on the ground where each object stands, or drawn through everything in front of it")
+  addDropdown(root, "Fill colour", fillOption, "the colour laid over the ground an object stands on")
+  addSlider(root, "Fill opacity", opacityOption,
+            "per cent: how much of the ground shows through the fill. 0 leaves only the border")
+  addDropdown(root, "Border colour", borderOption, "the line round the footprint, always solid")
+  addSlider(root, "Border thickness", borderWidthOption,
+            "hundredths of a world unit, a tile is 11 units. 0 is the thinnest line the screen can draw; " ..
+            "to hide the border, give it the fill's colour")
 end)
 
--- THE STEP, AND NOT THE ROW. A row is answered inside the widget tree of whatever put the Options window
--- up, and a mode change is a full sweep of everything in view -- work for a step rather than for a press,
--- and work no handler should be doing while it holds a tree of its own (api/threading.md).
-local function step(fn)
-  hafen.timer():after(0, fn)
+-- An option's Changed handler runs inside the Options window's widget tree, and a mode change sweeps
+-- every gob in view, so the work is moved onto a timer step (api/threading.md).
+local function onNextStep(callback)
+  hafen.timer():after(0, callback)
 end
 
--- A slider fires Changed once per STEP OF A DRAG, so the four look rows are coalesced onto one short timer
--- rather than re-dressing every box on screen a hundred times over one pull of the mouse. It is restarted
--- rather than queued, so a whole drag pays one re-dress every tenth of a second and a single click pays
--- one -- and either way the work lands off the Options window's own tree, which is the other half of why.
-local settle
-local function soon(fn)
-  if settle then settle:cancel() end
-  settle = hafen.timer():after(SETTLE, function()
-    settle = nil
-    fn()
+-- A slider fires Changed on every step of a drag; the re-dress is debounced onto one restarted timer.
+local settleTimer
+local function afterSettle(callback)
+  if settleTimer then settleTimer:cancel() end
+  settleTimer = hafen.timer():after(SETTLE_SECONDS, function()
+    settleTimer = nil
+    callback()
   end)
 end
 
-local laid = {}    -- [Gob] = {name = <resource when read>, own = {patch, ...},
-                   --          base = <facing when read>, turn = <last written>}
-local ghost        -- the same, for the ghost on the cursor
-local ticker       -- the re-read; it runs in both drawing modes, and is nil in exactly one case: `off`
-local turner       -- the facing correction
+-- ---------------------------------------------------------------- state
 
-local function ground() return modeOpt:value() == "ground" end
-local function off()    return modeOpt:value() == "off" end
+-- [Gob] = {name = resource name when read, patches = {patch, ...},
+--          baseFacing = facing when read, rotation = last rotation written}
+local laidBoxes = {}
+local ghostBox              -- the same for the building being placed, plus lastX/lastY of the patches
+local sweepTimer            -- running in both drawing modes; nil while "off"
+local facingTimer
 
-local function patches()
-  return hafen.virtual():patch()    -- the same object every call
+local function isGroundMode() return modeOption:value() == "ground" end
+local function isOff()        return modeOption:value() == "off" end
+
+local function patchCollection()
+  return hafen.virtual():patch()
 end
 
--- ---------------------------------------------------------------- the look the page sets
+-- ---------------------------------------------------------------- look
 
--- A row holding a colour this palette no longer offers falls back to what the row itself declared rather
--- than raising -- dress() is called from redress(), where there is no pcall and a raise would spill.
-local function rgb(opt)
-  return RGB[opt:value()] or RGB[opt:default()]
+-- A colour name the palette no longer carries falls back to the option's default.
+local function colourOf(option)
+  return COLOUR_RGB[option:value()] or COLOUR_RGB[option:default()]
 end
 
--- The look every patch wears, read off the page each time one is dressed: a row IS its value, so there is
--- nowhere else for this to be kept and nothing to keep in step.
---
--- The fill takes the opacity row as its own fourth component, which on a patch is the fill's own opacity --
--- there is no picture under a patch for a blend strength to be measured against. The rim is left solid,
--- which is why the row above it says `fill`: :alpha(a) would have carried the border down with it, and a
--- border you can see through is a border you cannot follow across pale soil.
---
--- Only two things separate a `ground` box from an `over` one, and both are here: the flag, and nothing.
+-- The tint's fourth component is the fill's own opacity; the border is left solid.
 local function dress(patch)
-  local c = rgb(fillOpt)
-  local a = math.floor(((alphaOpt:value() * 255) / 100) + 0.5)
-  return patch:tint({c[1], c[2], c[3], a})
-              :border(rgb(edgeOpt), widthOpt:value() / 100)   -- the row is hundredths of a world unit
-              :occluded(ground())
+  local fill = colourOf(fillOption)
+  local alpha = math.floor(((opacityOption:value() * 255) / 100) + 0.5)
+  return patch:tint({fill[1], fill[2], fill[3], alpha})
+              :border(colourOf(borderOption), borderWidthOption:value() / 100)
+              :occluded(isGroundMode())
 end
 
--- ---------------------------------------------------------------- reading a footprint
+local function redress()
+  for _, box in pairs(laidBoxes) do
+    for _, patch in ipairs(box.patches) do
+      if patch:exists() then dress(patch) end
+    end
+  end
+  if ghostBox then
+    for _, patch in ipairs(ghostBox.patches) do
+      if patch:exists() then dress(patch) end
+    end
+  end
+end
 
--- A ring the patch collection refuses is a shape this addon cannot lay, not an error worth spilling: an
--- obst layer is whatever the resource's author drew, so a concave one or one past the 32-edge limit is a
--- real shape to meet. Each ring goes on its own, so one bad ring in a set does not cost the others.
-local function put(anchor, ring, own)
+-- ---------------------------------------------------------------- laying a footprint
+
+-- The collection refuses a ring it cannot lay (concave, or past the 32-edge limit); that ring is skipped
+-- and the rest of the set is still laid.
+local function layRing(anchor, ring, patches)
   local ok, patch = pcall(function()
-    return dress(patches():add(ring, anchor))
+    return dress(patchCollection():add(ring, anchor))
   end)
-  if ok and patch then own[#own + 1] = patch end
+  if ok and patch then patches[#patches + 1] = patch end
 end
 
--- Read one object's footprint and lay it. Nothing is recorded for an object with no shape, so the sweep
--- comes back for it -- which is what picks up a resource that had not resolved yet.
---
--- The patches ARE the drawing and they hold the shape, so the rings are not kept: a patch anchored to the
--- Gob follows it over the ground, and `base`/`turn` are all that is left to correct.
-local function read(g, name)
-  local box = g:hitbox()
+local function removePatches(box)
+  for _, patch in ipairs(box.patches) do
+    if patch:exists() then patchCollection():remove(patch) end
+  end
+end
+
+-- An object without a shape is not recorded, so the next sweep reads it again (its resource may not have
+-- resolved yet).
+local function layGobBox(gob, name)
+  local rings = gob:hitbox()
+  if not rings then return end
+  local patches = {}
+  for _, ring in ipairs(rings) do layRing(gob, ring, patches) end
+  if #patches == 0 then return end
+  laidBoxes[gob] = {name = name, patches = patches, baseFacing = gob:facing() or 0, rotation = 0}
+end
+
+local function forgetGob(gob)
+  local box = laidBoxes[gob]
   if not box then return end
-  local own = {}
-  for _, ring in ipairs(box) do put(g, ring, own) end
-  if #own == 0 then return end
-  laid[g] = {name = name, own = own, base = g:facing() or 0, turn = 0}
+  laidBoxes[gob] = nil
+  removePatches(box)
 end
 
-local function drop(mine)
-  for _, patch in ipairs(mine.own) do
-    if patch:exists() then patches():remove(patch) end
+-- A gob keeps its id when its resource changes (a felled tree becomes a log), so the box is keyed on the
+-- resource name and re-laid when that name changes.
+local function considerGob(gob)
+  local name = gob:name()
+  if name == nil then return end
+  local box = laidBoxes[gob]
+  if box then
+    if box.name == name then return end
+    forgetGob(gob)
   end
-end
-
-local function forget(g)
-  local mine = laid[g]
-  if not mine then return end
-  laid[g] = nil
-  drop(mine)
-end
-
--- Re-read, never remembered: a felled tree keeps its id and becomes a log, so the box read for the tree is
--- the wrong box a moment later. The resource name is what says so, and it is a cheap read.
-local function consider(g)
-  local name = g:name()
-  if name == nil then return end    -- not resolved yet; nothing to key a verdict on
-  local mine = laid[g]
-  if mine then
-    if mine.name == name then return end
-    forget(g)
-  end
-  read(g, name)
+  layGobBox(gob, name)
 end
 
 local function sweep()
-  for _, s in ipairs(hafen.session():list()) do
-    if s:character() then
-      for _, g in ipairs(s:world():gob():list()) do consider(g) end
+  for _, session in ipairs(hafen.session():list()) do
+    if session:character() then
+      for _, gob in ipairs(session:world():gob():list()) do considerGob(gob) end
     end
   end
 end
 
--- ---------------------------------------------------------------- keeping a laid box straight
+-- ---------------------------------------------------------------- facing
 
--- gob:hitbox() hands back rings ALREADY turned by the object's facing, and a patch keeps them as offsets
--- from its anchor that the object's own turning does not turn. So a boar that comes about would wear its
--- box sideways -- unless the patch is turned by as much as the object has since its rings were read, which
--- is what this is. It is its own timer, and a fast one, because a running creature turns between sweeps;
--- it is affordable there because turning a patch re-carves the ground it already covers and rebuilds no
--- mesh, where taking a box up and laying it again re-cuts every tile under it.
-local function spin()
-  for g, mine in pairs(laid) do
-    local now = g:facing()
-    if now then
-      local turn = now - mine.base              -- absolute: the patch was laid at a rotation of 0
-      if turn ~= mine.turn then
-        mine.turn = turn
-        for _, patch in ipairs(mine.own) do
-          if patch:exists() then patch:rotate(turn) end
-        end
-      end
-    end
+-- gob:hitbox() answers rings already turned by the object's facing, and a patch anchored to a gob does not
+-- turn with it, so each box is rotated by how far the object has turned since its rings were read.
+local function rotateBox(box, facing)
+  local rotation = facing - box.baseFacing
+  if rotation == box.rotation then return end
+  box.rotation = rotation
+  for _, patch in ipairs(box.patches) do
+    if patch:exists() then patch:rotate(rotation) end
   end
 end
 
--- ---------------------------------------------------------------- the ghost on the cursor
-
-local function unlayGhost()
-  if not ghost then return end
-  local mine = ghost
-  ghost = nil
-  drop(mine)
+local function correctFacing()
+  for gob, box in pairs(laidBoxes) do
+    local facing = gob:facing()
+    if facing then rotateBox(box, facing) end
+  end
 end
 
--- The ghost is none of the above: it is not among the gobs, so no sweep finds it, and it has no Gob for a
--- patch to follow. So its box is laid at a PLACE and moved from here, every frame, because that is how
--- often a cursor moves -- and affordable because it is one object.
---
--- Only the DRAWN character's ghost is read. A Plob is drawn in its own session's view, so another login's
--- is not on your screen to want a box round; tab away mid-placement and the read goes nil, which takes the
--- box up by the same line a click does.
-local function ghostFollow()
-  local s = hafen.session():current()
-  local pl = s and s:world():placing()
-  if not pl then return unlayGhost() end
-  local name = pl:name()
-  if name == nil then return end                -- the resource the server named has not resolved yet
-  if ghost and (ghost.name ~= name) then
-    unlayGhost()                                -- something else is on the cursor now: read it again
-  end
-  local at = pl:position()
-  if not at then return end
-  if not ghost then
-    local box = pl:hitbox()
-    if not box then return end                  -- this one leaves no footprint: nothing to draw
-    local own = {}
-    for _, ring in ipairs(box) do put(at, ring, own) end
-    if #own > 0 then
-      ghost = {own = own, name = name, base = pl:facing() or 0, turn = 0, x = at:x(), y = at:y()}
+-- ---------------------------------------------------------------- the building being placed
+
+local function removeGhostBox()
+  if not ghostBox then return end
+  local box = ghostBox
+  ghostBox = nil
+  removePatches(box)
+end
+
+-- The placing ghost is not a gob, so its box is anchored at a position and moved from Update every frame.
+-- Only the current session's ghost is drawn.
+local function followGhost()
+  local session = hafen.session():current()
+  local placing = session and session:world():placing()
+  if not placing then return removeGhostBox() end
+  local name = placing:name()
+  if name == nil then return end
+  if ghostBox and (ghostBox.name ~= name) then removeGhostBox() end
+  local position = placing:position()
+  if not position then return end
+  if not ghostBox then
+    local rings = placing:hitbox()
+    if not rings then return end
+    local patches = {}
+    for _, ring in ipairs(rings) do layRing(position, ring, patches) end
+    if #patches > 0 then
+      ghostBox = {name = name, patches = patches, baseFacing = placing:facing() or 0, rotation = 0,
+                  lastX = position:x(), lastY = position:y()}
     end
     return
   end
-  local x, y = at:x(), at:y()
-  if x and y and ((x ~= ghost.x) or (y ~= ghost.y)) then
-    ghost.x, ghost.y = x, y
-    -- A place a patch may stand at has to be one that can be KEPT, and the collection refuses one that
-    -- cannot be. Under the cursor that is ground you are looking at, so it is durable -- but this runs every
-    -- frame, which is the worst place in the file for a raise, so a refusal takes the box up instead and the
-    -- next frame lays it again through the guarded path above.
+  local x, y = position:x(), position:y()
+  if x and y and ((x ~= ghostBox.lastX) or (y ~= ghostBox.lastY)) then
+    ghostBox.lastX, ghostBox.lastY = x, y
+    -- patch:position() raises on ground that cannot be kept; the box is dropped and re-laid next frame.
     local ok = pcall(function()
-      for _, patch in ipairs(ghost.own) do
-        if patch:exists() then patch:position(at) end
+      for _, patch in ipairs(ghostBox.patches) do
+        if patch:exists() then patch:position(position) end
       end
     end)
-    if not ok then return unlayGhost() end
+    if not ok then return removeGhostBox() end
   end
-  local now = pl:facing()
-  if now then
-    local turn = now - ghost.base
-    if turn ~= ghost.turn then
-      ghost.turn = turn
-      for _, patch in ipairs(ghost.own) do
-        if patch:exists() then patch:rotate(turn) end
-      end
-    end
-  end
+  local facing = placing:facing()
+  if facing then rotateBox(ghostBox, facing) end
 end
 
--- ---------------------------------------------------------------- the cycle
+-- ---------------------------------------------------------------- modes
 
-local function leave()
-  if ticker then ticker:cancel() end
-  if turner then turner:cancel() end
-  ticker, turner = nil, nil
-  unlayGhost()
-  local was = laid
-  laid = {}
-  for _, mine in pairs(was) do drop(mine) end
+local function leaveMode()
+  if sweepTimer then sweepTimer:cancel() end
+  if facingTimer then facingTimer:cancel() end
+  sweepTimer, facingTimer = nil, nil
+  removeGhostBox()
+  local boxes = laidBoxes
+  laidBoxes = {}
+  for _, box in pairs(boxes) do removePatches(box) end
 end
 
-local function enter()
-  if off() then return end
+local function enterMode()
+  if isOff() then return end
   sweep()
-  ghostFollow()
-  ticker = hafen.timer():every(RESCAN, sweep)
-  turner = hafen.timer():every(TURN, spin)
+  followGhost()
+  sweepTimer = hafen.timer():every(RESCAN_SECONDS, sweep)
+  facingTimer = hafen.timer():every(FACING_SECONDS, correctFacing)
 end
 
--- Every row but the mode's own means exactly this, and so does ground <-> over: the boxes stay where they
--- are and put on what the page now says. The ring, the anchor and the ground under every one of them are
--- the same before and after, so there is no half-converted set to be caught in -- there is nothing to
--- convert.
-local function redress()
-  for _, mine in pairs(laid) do
-    for _, patch in ipairs(mine.own) do
-      if patch:exists() then dress(patch) end
-    end
-  end
-  if ghost then
-    for _, patch in ipairs(ghost.own) do
-      if patch:exists() then dress(patch) end
-    end
-  end
-end
-
--- ONE PATH INTO A MODE, whether it was picked on the page or cycled with the key: the row is the setting,
--- so this is where the modes are left and entered, and the key below only moves the row. `ticker` is what
--- says whether boxes are down, which is the one question that decides between the three answers.
-modeOpt:on("Changed", function(m)
-  step(function()
-    if off() then
-      leave()
-    elseif ticker then
+-- "ground" <-> "over" only re-dresses the patches in place; nothing is re-laid.
+modeOption:on("Changed", function(mode)
+  onNextStep(function()
+    if isOff() then
+      leaveMode()
+    elseif sweepTimer then
       redress()
     else
-      enter()
+      enterMode()
     end
-    hafen.log():write("hitboxes: " .. m)
+    hafen.log():write("hitboxes: " .. mode)
   end)
 end)
 
--- The four look rows all say one thing to the boxes: wear it. None of them lays or drops anything, because
--- none of them changes WHAT is drawn -- only how, and a box that is not drawn has nothing to hear.
-for _, o in ipairs({fillOpt, alphaOpt, edgeOpt, widthOpt}) do
-  o:on("Changed", function() soon(redress) end)
+for _, option in ipairs({fillOption, opacityOption, borderOption, borderWidthOption}) do
+  option:on("Changed", function() afterSettle(redress) end)
 end
 
--- The hotkey starts unbound: an addon names an action and the user assigns the key, in
--- Options > Game > Keybindings > Hitboxes.
 hafen.client():options():keybindings():on("cycle", function()
-  local at = 1
-  for i, m in ipairs(MODES) do
-    if m == modeOpt:value() then at = i end
+  local current = 1
+  for index, mode in ipairs(MODES) do
+    if mode == modeOption:value() then current = index end
   end
-  modeOpt:value(MODES[(at % #MODES) + 1])
+  modeOption:value(MODES[(current % #MODES) + 1])
 end)
 
--- GobAdded runs before the object's first drawn frame, so one that arrives with its resource already in
--- hand is boxed from that frame rather than at the next sweep.
-hafen.event():on("GobAdded", function(g)
-  if not off() then consider(g) end
+-- GobAdded fires before the object's first drawn frame.
+hafen.event():on("GobAdded", function(gob)
+  if not isOff() then considerGob(gob) end
 end)
 
--- The patches went with it: one anchored to a Gob ends with that Gob, so there is nothing to take up and
--- only the entry goes.
-hafen.event():on("GobRemoved", function(g)
-  laid[g] = nil
+-- A patch anchored to a gob is removed with the gob; only the record goes.
+hafen.event():on("GobRemoved", function(gob)
+  laidBoxes[gob] = nil
 end)
 
--- The per-frame beat, and the cursor is the whole of it: everything else follows the object it is anchored
--- to without being asked. Nothing at all runs while the boxes are off.
 hafen.event():on("Update", function()
-  if off() then return end
-  ghostFollow()
+  if isOff() then return end
+  followGhost()
 end)
 
--- The mode is remembered now, so a client that starts in one enters it rather than waiting for a keypress.
--- On the step, because the sweep wants a world to read and this runs while the client is still coming up.
-if not off() then step(enter) end
+-- The mode is remembered across restarts; the sweep waits a step for the world to be up.
+if not isOff() then onNextStep(enterMode) end

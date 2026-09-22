@@ -1,7 +1,7 @@
 {
   "id": "auto-flowermenu",
   "name": "Auto FlowerMenu",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": "irongete",
   "description": "Whenever a Flower Menu opens, it selects the first matching petal from your list. You can customize this list by adding any petal caption in Options > AddOns > Auto FlowerMenu and ordering them by priority.",
   "api_version": "1.0",

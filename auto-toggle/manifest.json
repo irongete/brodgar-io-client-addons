@@ -1,0 +1,14 @@
+{
+  "id": "auto-toggle",
+  "name": "Auto Toggle",
+  "version": "1.0.0",
+  "author": "irongete",
+  "description": "Turns on the toggles you pick, such as Criminal Acts and Swimming, every time a character logs in.",
+  "api_version": "1.0",
+  "files": [
+    "main.lua"
+  ],
+  "permissions": [
+    "menugrid.use"
+  ]
+}

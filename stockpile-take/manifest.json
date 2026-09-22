@@ -1,7 +1,7 @@
 {
   "id": "stockpile-take",
   "name": "Stockpile Take",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "irongete",
   "description": "Type how many items you want out of a stockpile and take them all with one press.",
   "api_version": "1.0",

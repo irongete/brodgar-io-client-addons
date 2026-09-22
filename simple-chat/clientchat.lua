@@ -24,9 +24,11 @@ function ClientChat.take(window)
     end
 end
 
+-- Every frame, so it asks the least it can: a read on a widget that left the tree answers false rather than
+-- raising, so `visible()` alone is the whole question and `exists()` would only walk the tree a second time.
 function ClientChat.keepAway(window)
     local chat = window.hiddenChat
-    if chat and chat:exists() and chat:visible() then
+    if chat and chat:visible() then
         pcall(function() chat:visible(false) end)
     end
 end

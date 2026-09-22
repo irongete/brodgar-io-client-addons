@@ -1,7 +1,7 @@
 {
   "id": "auto-toggle",
   "name": "Auto Toggle",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "irongete",
   "description": "Turns on the toggles you pick, such as Criminal Acts and Swimming, every time a character logs in.",
   "api_version": "1.0",

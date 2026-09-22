@@ -1,7 +1,7 @@
 {
   "id": "translations",
   "name": "Translations",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "irongete",
   "description": "Translates the client: pick a language in Options > AddOns > Translations. And collaborate on new translations: turn the helper on and the translator window collects every string the language does not name yet, so you translate them one by one and see each one on screen the moment it is saved.",
   "api_version": "1.0",

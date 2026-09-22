@@ -1,7 +1,7 @@
 {
   "name": "EventStack",
   "id": "eventstack",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "brodgar",
   "description": "A live log of what the client does: every message out, every update in, every event on the bus, and every widget coming and going -- narrowed by session, widget and event, and one click for what a row carried.",
   "api_version": "1.0",

@@ -93,7 +93,7 @@ Every addon resides in its own top-level directory:
 - **`id`**: Must match the directory name exactly.
 - **`api_version`**: Must be `"1.0"` (the current client generation).
 - **`files`**: List of `.lua` source files to execute in sequential order on startup.
-- **`permissions`**: Explicitly declare all protected permissions needed by the addon (e.g. `"player.move"`, `"player.speed"`, `"client.settings"`, `"http.get"`).
+- **`permissions`**: Explicitly declare all protected permissions needed by the addon (e.g. `"player.move"`, `"speed.set"`, `"client.settings"`, `"http.get"`).
 - **`network`**: Required if using network permissions (`http.*`, `websocket.*`, `voice.*`). Explicitly list permitted hostnames under `network.hosts`.
 
 ---

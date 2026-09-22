@@ -1,7 +1,7 @@
 {
   "id": "voice",
   "name": "Voice",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "gonzalo",
   "description": "Talk to the players near your character with a push-to-talk key, and hear each of them from the direction they stand in.",
   "api_version": "1.0",

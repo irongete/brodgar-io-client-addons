@@ -1,37 +1,38 @@
 # Multi-Session
 
-**Play several characters at once and switch between them with one click.**
+Play several characters at once and switch between them with one click. Log in with more than one account
+and every character stays in the game at the same time; a small dock down the left edge of the screen
+shows all of them, and pressing a portrait is looking through that character's eyes.
 
-Log in with more than one account and every character stays in the game at the same time. A small
-dock on the left edge of the screen shows all of them: press a portrait and you are looking through
-that character's eyes.
+## Usage
 
-## What you see
+1. Log in as usual. The dock lists the character you are playing, with their portrait, their name and an
+   **X** to log them out.
+2. Press the **+** at the end of the dock to open the login screen and add another account. Nothing is
+   logged out while you do: the others keep playing in the background.
+3. Press a portrait to switch to that character. Under the portraits there is a button for each account
+   you have saved but not logged in yet.
 
-The dock lists every character you have logged in, with their portrait, their name and an `X` to log
-them out. Below them there is a button for each account you have saved but not logged in yet, and a
-`+` button that opens the login screen so you can add another one. Nothing gets logged out when you
-add an account: the others keep playing in the background.
+On the ground, every one of your characters stands inside a coloured circle, so you can tell them apart at
+a glance.
 
-On the ground, every one of your characters stands inside a coloured circle, so you can tell them
-apart at a glance.
+## Keys
 
-## Hotkeys
+**Options ▸ Game ▸ Keybindings ▸ Multi-Session**:
 
-Set them in **Options ▸ Keybindings ▸ Multi-Session**:
-
-* **Select next session** — jumps to the next character, and round again.
-* **Select character** — click on any of your characters on screen to switch to it.
-* **Focus selection** — centres the camera on the character you are playing.
+- **Select next session** — jumps to the next character, and round again.
+- **Select character** — click any of your characters on screen to switch to it.
+- **Focus selection** — centres the camera on the character you are playing.
 
 ## Options
 
-In **Options ▸ AddOns ▸ Multi-Session** you can:
+**Options ▸ AddOns ▸ Multi-Session**:
 
-* Hide the names and `X` buttons to get a slim dock of portraits only.
-* Hide the character you are currently looking at from the dock.
-* Turn the coloured circles under your characters on or off.
-* Move the dock to another edge of the screen, or set it free and drag it wherever you like.
-* Lay the dock vertically or horizontally.
-* Sort your accounts by name, or order them by hand.
-* Hide accounts you do not want to see in the dock.
+- **Show names and log-out buttons** — off leaves a slim dock of portraits only.
+- **Show the current character** — off leaves the one you are looking through out of the dock.
+- **Show a circle under each character** — the coloured circles on the ground.
+- **Choose where the dock stands** — tick it to set **Placement**: an edge to hold the dock to, with how
+  far along that edge it sits and how far off it, or **Free** to drag it wherever you like.
+- **Orientation** — lay the dock vertically or horizontally.
+- **Sort accounts by name** — off lets you order them by hand with **Up** and **Down**.
+- **Account visibility** — hide the accounts you do not want in the dock.

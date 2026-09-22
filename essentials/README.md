@@ -1,17 +1,22 @@
 # Essentials
 
-What the client does for a character the moment it enters the world. No window and no command: the rows
-are in **Options ▸ AddOns ▸ Essentials**, and each one is read when a session enters the world.
+Three things the client can do for a character the moment it enters the world: turn toggles on, open the
+inventory, and set the movement speed. There is no window — the rows are in **Options ▸ AddOns ▸
+Essentials**, and everything is off until you turn it on.
 
-| Row | Does |
-|---|---|
-| **Toggles at login** — Criminal Acts, Swimming | presses Adventure ▸ Toggle ▸ that toggle, unless its buff is already on the bar |
-| **Open inventory on login** | opens the inventory window |
-| **Set speed at login** | puts the character on Crawl, Walk, Run or Sprint; `None` leaves it as it is |
+## Options
 
-Everything is off until you turn it on. The toggles wait a few seconds for the buff bar to stream in
-before they read it, and each row writes one line to the console saying what it did.
+**Options ▸ AddOns ▸ Essentials**:
 
-It needs `menugrid.use` (the toggles) and `speed.set` (the speed), so it starts disabled: tick it in the
-AddOns panel, accept the two keys, and **Reload UI**. A `:reload` announces every character already in the
-world again, and that is not a login — nothing runs for them.
+- **Toggles at login** — Criminal Acts and Swimming, each with a box of its own. A toggle already on is
+  left alone.
+- **Open inventory on login** — opens the inventory window.
+- **Set speed at login** — puts the character on Crawl, Walk, Run or Sprint. **None** leaves the speed as
+  it is.
+
+## Notes
+
+- It waits a few seconds after the character enters the world, so the toggles can be read before they are
+  pressed, and gives up on one that never arrives.
+- A speed the character has not unlocked yet is left as it is.
+- Pressing **Reload UI** does not re-run it for characters already in the world.

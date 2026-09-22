@@ -2,20 +2,20 @@
 
 Press **Ctrl+Space**, type part of an action's name and run it without opening the action menu.
 
-## Use
+## Usage
 
-| You do | It does |
-|---|---|
-| **Ctrl+Space** | opens a search field in the middle of the screen, or closes it |
-| type | lists the actions whose name contains the text, each with its icon and the categories it sits under, and then the actions under a category whose name contains it — type `Food` for everything in that category |
-| **Up** / **Down** | mark a result |
-| **Enter** | runs the marked result, or the first one while none is marked |
-| **click a row** | runs that action |
-| **mouse wheel** | scrolls the list, which shows eight results at a time |
-| type `:` and a command | runs it at the client's console, `:reload` for instance |
-| drag the field | moves it; it opens where you left it next time |
-| **Escape** | closes the field |
+1. Press **Ctrl+Space** to open a search field in the middle of the screen, and again to close it. Change
+   the key in **Options ▸ Game ▸ Keybindings ▸ Quick Search**.
+2. Type. The field lists the actions whose name contains the text, each with its icon and the categories
+   it sits under, and then the actions under a category whose name contains it — type `Food` for
+   everything in that category.
+3. Mark a result with **Up** and **Down** and run it with **Enter**, or click a row to run that one.
+   Enter with nothing marked runs the first result.
 
-Only the actions your character has are listed, and the list grows as you learn new ones.
+The list shows eight results at a time and the wheel scrolls it. **Escape** closes the field, and dragging
+it moves it — it opens where you left it next time.
 
-Change **Ctrl+Space** in **Options ▸ Game ▸ Keybindings ▸ Quick Search**.
+## Notes
+
+- Only the actions your character has are listed, and the list grows as you learn new ones.
+- Typing `:` and a command runs it at the client's console, `:reload` for instance.

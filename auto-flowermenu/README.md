@@ -1,31 +1,21 @@
 # Auto FlowerMenu
 
-**Picks a petal off the radial menu for you, the instant the ring opens.** Which petal is yours to say:
-the addon keeps a list of captions, and when a ring goes up it walks that list from the top and picks the
-first entry the ring offers. A ring it picks from is never painted at all; one that offers nothing on the
-list is left exactly as it was, for you to decide.
+Picks a petal off the radial menu for you, the instant the ring opens. You keep a list of captions, and a
+ring offering one of them is answered before it is drawn at all. A ring that offers nothing on your list
+opens as usual, for you to decide.
 
-The list starts **empty**. Nothing is picked until you add something.
+## Usage
 
-## The list
-
-**Options ▸ AddOns ▸ Auto FlowerMenu.** Type a caption — the word the ring paints, `Pick`, `Chop`,
-`Harvest` — and press **Add** or Enter. Each entry is a row:
-
-| Button | Does |
-|---|---|
-| **Up** | moves the entry one place up the list |
-| **Down** | moves it one place down |
-| **X** | takes it off the list |
+1. Open **Options ▸ AddOns ▸ Auto FlowerMenu**. The list starts empty, so nothing is picked until you add
+   something.
+2. Type a caption — the word the ring paints, `Pick`, `Chop`, `Harvest` — and press **Add** or Enter.
+3. Order the list with the **Up** and **Down** buttons on each row, and take a row off with **X**.
 
 **The order is the priority.** With `Harvest` above `Pick`, a ring offering both is harvested; a ring
-offering only `Pick` is picked. A caption is matched whole and without regard to case, so `pick` and
-`Pick` are the same entry, and a blank or a repeat is not added.
+offering only `Pick` is picked.
 
-The list is saved in the addon's own file, shared by every account and character on this client, and it
-holds across reloads and restarts.
+## Notes
 
-## What it asks for
-
-One permission, `flowermenu.select` — *pick a petal off the radial menu* — which is the whole of what it
-does. It starts disabled for that: tick it in the AddOns panel, accept the key, and **Reload UI**.
+- A caption is matched whole and without regard to case, so `pick` and `Pick` are the same entry.
+- A blank caption, or one already on the list, is not added.
+- The list is shared by every account and character on this client, and holds across restarts.

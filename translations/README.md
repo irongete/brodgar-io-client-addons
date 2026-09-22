@@ -4,69 +4,59 @@ Shows the client in another language, and lets you build that language yourself 
 
 ## Choosing a language
 
-Options ▸ AddOns ▸ Translations ▸ **Language**. `English` is the client's own text. Any other entry is a
-language created with this addon. The choice is remembered between sessions.
+**Options ▸ AddOns ▸ Translations ▸ Language.** `English` is the client's own text; every other entry is a
+language made with this addon. The choice is remembered between sessions.
 
-## Creating a translation
+## Making a translation
 
-1. In Options ▸ AddOns ▸ Translations, tick **Translation helper** and press **Open the translator**.
-2. In the translator window, type a name in **New language** (for example `es`) and press **Add**.
-3. Play. Every text the client shows that your language does not translate yet appears in the list, with
-   the place it was shown in: `[button] Cancel`, `[window.title] Inventory`, `[tooltip] Quality: 23`. Open
-   the windows you want to translate, hover over items, right-click for menus.
-4. Click a row, type the translation in the text field and press Enter. The text changes on screen right
-   away, and the next row is selected.
+1. In **Options ▸ AddOns ▸ Translations**, tick **Translation helper** and press **Open the translator**.
+2. In the translator window, type a name in **New language** — `es`, for instance — and press **Add**.
+3. Play. Every text the client shows that your language does not cover yet appears in the list, with the
+   place it was shown in: `[button] Cancel`, `[window.title] Inventory`, `[tooltip] Quality: 23`. Open the
+   windows you want to translate, hover over items, right-click for menus.
+4. Click a row, type the translation and press Enter. The text changes on screen right away and the next
+   row is selected.
 
-Translations are saved as you go. The list of pending text is not: after a restart or a `:reload` it fills
-up again as you play.
+Translations are saved as you go. The list of pending text is not: after a restart it fills up again as
+you play.
 
 ## The translator window
 
-| Control | What it does |
-|---|---|
-| **Language** | The language you are viewing and editing. Same as the option. |
-| **Show** | Which rows to list: **Pending** (not translated yet), **Translated**, **Ignored** or **All**. |
-| **Filter** | Only rows containing this text. |
-| **New language** / **Add** | Create a language. |
-| **Delete language** | Delete the current language with all its translations. Asks for confirmation. |
-| **Match** | Regular expression for a pattern (see below). Empty for a normal translation. |
-| **Pattern** | Fill **Match** with the selected text, ready to turn into a pattern. |
-| **Save** (or Enter) | Save the translation of the selected row. |
-| **Delete** | Remove the translation of the selected row. The text goes back to English. |
-| **Ignore** / **Restore** | Hide a row you do not want to translate, until the next restart or `:reload`. |
+- **Language** — the language you are viewing and editing, the same one as the option.
+- **Show** — which rows to list: **Pending**, **Translated**, **Ignored** or **All**.
+- **Filter** — only the rows containing this text. The list shows up to 500 rows, so use it when there are
+  more.
+- **New language** and **Add** — make a language. **Delete language** removes the current one with all its
+  translations, and asks first.
+- **Save**, or Enter — saves the translation of the selected row. **Delete** removes it and the text goes
+  back to English.
+- **Ignore** and **Restore** — hide a row you do not want to translate, until the next restart.
+- **Match** and **Pattern** — for a text that changes every time. See below.
 
-The list shows up to 500 rows. Use the filter if there are more.
+## Texts that change every time
 
-## Patterns
+Some texts carry a name or a number: `Irongete is now online.`, `Quality: 23`. A plain translation only
+matches one exact text, so those want a pattern:
 
-Some texts contain a name or a number that changes every time (`Alistar is now online.`, `Quality: 23`).
-A normal translation only matches one exact text, so use a pattern instead:
-
-1. Select the row and press **Pattern**. **Match** is filled with the text, with special characters
-   escaped: `Alistar is now online\.`
+1. Select the row and press **Pattern**. **Match** is filled with the text, ready to edit.
 2. Replace the part that changes with a group: `(.*)` for anything, `(\d+)` for a number, `(\w+)` for one
-   word: `(.*) is now online\.`
-3. Write the translation with `%1$s` where the first group goes (`%2$s` for the second, in any order):
+   word — `(.*) is now online\.`
+3. Write the translation with `%1$s` where the first group goes, `%2$s` for the second, in any order:
    `%1$s se ha conectado.` Press Enter.
 
-The pattern must match the whole text. Patterns are Java regular expressions. They are listed in the
-**Translated** and **All** views as `[chat.system] /(.*) is now online\./`; select one to edit or delete it.
-If the client rejects a pattern (an unclosed parenthesis, a `%2$s` with only one group), nothing is saved
-and the status line at the bottom says why.
+A pattern has to match the whole text. Patterns are listed in the **Translated** and **All** views between
+slashes; select one to edit or delete it. If the client refuses a pattern, nothing is saved and the line
+at the bottom of the window says why.
 
-## Where translations are stored
+## Notes
 
-In `savedata/translations/translations.sqlite`, next to the client. To ship a language as an addon of its
-own, see the client's [translating guide](https://github.com/irongete/brodgar-io-client/blob/HEAD/docs/addons/guides/translating.md).
-
-## Good to know
-
-- Text written by players (chat, names, speech bubbles) is never translated or listed.
-- Tooltip rows and chat lines are listed with their formatting codes (`$col[...]{...}`, `$b{...}`). Keep the
-  codes and translate the words inside them.
-- Translating only changes what you see. Other addons keep reading the client's English text, so they keep
-  working.
-- If another translation addon is active at the same time, some texts may not appear in this list. Collect
-  with this addon alone.
-- The client needs a font with the characters of your language. A [theme](../themes/README.md) can provide
-  one.
+- Text written by players — chat, names, speech bubbles — is never translated or listed.
+- Tooltip rows and chat lines are listed with their formatting codes. Keep the codes and translate the
+  words inside them.
+- Translating only changes what you see. Other addons go on reading the client's English text, so they go
+  on working.
+- With another translation addon active at the same time, some texts may not reach this list. Collect with
+  this addon alone.
+- The client needs a font that has the characters of your language. The **Themes** addon can provide one.
+- To ship a language as an addon of its own, see the
+  [translating guide](https://irongete.github.io/brodgar-io-client/addons/guides/translating.html).

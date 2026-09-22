@@ -79,7 +79,7 @@ version is a commit. If the upload fails the manifest is put back and nothing is
 | `simple-chat` | Replaces the client's chat with a window whose channels are tabs across the top, dragged by its body and resized from the bottom-right corner | `chat.send`, `console.run` |
 | `simple-gob-hider` | One key hides the game objects whose resource is on its list and paints a yellow patch over the ground each of them stands on | — |
 | `simple-minimap` | Puts the corner minimap in a bare panel of its own, the claim, province and icon buttons in a row above it: no title, no close button, dragged from anywhere on it, sized by a grip in its corner, dressed by any theme that names it | — |
-| `stockpile-controls` | Every window titled "Stockpile" grows a little taller and carries a row of its own below the pile: an amount, and a Take button that draws that many items out of the pile and into your backpack | `widget.send` |
+| `stockpile-take` | Type how many items you want out of a stockpile and take them all with one press | `widget.send` |
 | `themes` | Loads whole client looks from JSON files in its own `themes/` folder and installs one | — |
 | `translations` | Displays the client in the language you pick in Options ▸ AddOns, and helps you write a new one: with the helper on, every string the language does not name yet is collected while you play, translated one by one in the translator window and exported as the JSON file a language ships as | — |
 | `trellis-builder` | Pick a block pile, a string pile and a patch of ground, press Start, and the character walks the route itself and fills the patch with trellises — as many per tile as the trellis's own footprint leaves room for | `player.move`, `gob.click`, `world.place`, `menugrid.use`, `widget.send` |

@@ -1,0 +1,10 @@
+{
+  "id": "stockpile-take",
+  "name": "Stockpile Take",
+  "version": "1.0.0",
+  "author": "irongete",
+  "description": "Type how many items you want out of a stockpile and take them all with one press.",
+  "api_version": "1.0",
+  "files": ["main.lua"],
+  "permissions": ["widget.send"]
+}

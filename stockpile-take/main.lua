@@ -1,25 +1,24 @@
 -- Stockpile Take: an amount field and a Take button below the pile in every Stockpile window.
 --
 -- Both controls are parented to the window, so window:pack() grows its frame around them and everything
--- the client already placed there keeps its position. Take sends one "xfer" per item on a timer, the
--- message a shift-click on the pile sends.
+-- the client already placed there keeps its position. Take sends one "xfer" per item, the message a
+-- shift-click on the pile sends.
 
 local GAP = 4                    -- design pixels between the pile's box and the row, and between the controls
 local AMOUNT_FIELD_WIDTH = 48    -- the Take button takes the rest of the box's width
-local WITHDRAW_INTERVAL = 0.05   -- seconds between two withdrawals
-local MOST_PER_PRESS = 500       -- upper bound for one press, whatever the field says
+local MOST_PER_PRESS = 300       -- upper bound for one press, whatever the field says: no pile holds more
 
 local watchByAccount = {}        -- [account] = the widget subscription standing on that character's tree
 
--- One item, then the next, until the count runs out or the window closes under it.
-local function withdrawNext(pileBox, remaining)
-  if (remaining <= 0) or not pileBox:exists() then return end
-  local sent, failure = pcall(function() pileBox:send("xfer") end)
+-- The whole count in one frame, the way a run of shift-clicks would arrive. Nothing bounds what an addon
+-- sends, and the pile takes one message per item, so spacing them out would only make the press slower.
+local function withdraw(pileBox, amount)
+  local sent, failure = pcall(function()
+    for _ = 1, amount do pileBox:send("xfer") end
+  end)
   if not sent then
     hafen.log():write("stockpile-take: " .. tostring(failure))
-    return
   end
-  hafen.timer():after(WITHDRAW_INTERVAL, function() withdrawNext(pileBox, remaining - 1) end)
 end
 
 -- Builds the row under `pileBox`, the ISBox that holds the pile, inside the window carrying it.
@@ -49,7 +48,7 @@ local function addControls(pileBox)
       hafen.log():write("stockpile-take: type how many items to take out first")
       return
     end
-    withdrawNext(pileBox, math.min(amount, MOST_PER_PRESS))
+    withdraw(pileBox, math.min(amount, MOST_PER_PRESS))
   end
 
   takeButton:on("Pressed", take)

@@ -1,0 +1,18 @@
+{
+  "id": "quick-search",
+  "name": "Quick Search",
+  "version": "1.0.0",
+  "author": "brodgar",
+  "description": "Press Ctrl+Space, type part of an action's name and run it without opening the action menu.",
+  "api_version": "1.0",
+  "files": [
+    "catalogue.lua",
+    "window.lua",
+    "main.lua"
+  ],
+  "permissions": [
+    "menugrid.use",
+    "client.settings",
+    "console.run"
+  ]
+}

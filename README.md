@@ -73,6 +73,7 @@ version is a commit. If the upload fails the manifest is put back and nothing is
 | `object-radius-indicator` | A round patch laid on the ground under every object on its list that is in view, following it as it moves | — |
 | `paint` | Draw on the ground with the mouse | — |
 | `profiler` | Where the frame went — a six-tab window over `hafen.client():profiling()` with the frame graph and phases, render passes and GL counters, per-widget and per-addon cost, the pull-only counters and the overhead accounting | `client.settings` |
+| `quick-search` | Press Ctrl+Space, type part of an action's name and run it without opening the action menu | `menugrid.use`, `client.settings`, `console.run` |
 | `resourcestack` | Every resource the client holds, as a searchable list — pick one and the panel shows its version, a preview of its image and every layer with what `layer:info()` decodes (image geometry, tooltip and pagina text, audio volume, neg and obst rings, anim frames, props and meta); Fetch asks the client for a name it has not loaded yet and follows the load or its error | — |
 | `session-manager` | One row per login the client holds: go to that character, log it out, or cycle to the next with a hotkey | `session.close` |
 | `simple-chat` | Replaces the client's chat with a window whose channels are tabs across the top, dragged by its body and resized from the bottom-right corner | `chat.send`, `console.run` |

@@ -1,7 +1,7 @@
 {
   "id": "auto-toggle",
   "name": "Auto Toggle",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "irongete",
   "description": "Turns on the toggles you pick, such as Criminal Acts and Swimming, and puts the character on the speed you pick, every time a character logs in.",
   "api_version": "1.0",

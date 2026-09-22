@@ -1,7 +1,7 @@
 {
   "id": "hitboxes",
   "name": "Hitboxes",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "author": "irongete",
   "description": "Draws the footprint of every game object in view, and of the building you are placing, on the ground: off, hidden by what stands in front of it, or drawn through everything. Cycle the modes with the key assigned in Options > Game > Keybindings > Hitboxes; colours and opacity in Options > AddOns > Hitboxes.",
   "api_version": "1.0",

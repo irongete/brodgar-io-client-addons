@@ -83,7 +83,7 @@ version is a commit. If the upload fails the manifest is put back and nothing is
 | `themes` | Loads whole client looks from JSON files in its own `themes/` folder and installs one | — |
 | `translations` | Displays the client in the language you pick in Options ▸ AddOns, and helps you write a new one: with the helper on, every string the language does not name yet is collected while you play, translated one by one in the translator window and exported as the JSON file a language ships as | — |
 | `trellis-builder` | Pick a block pile, a string pile and a patch of ground, press Start, and the character walks the route itself and fills the patch with trellises — as many per tile as the trellis's own footprint leaves room for | `player.move`, `gob.click`, `world.place`, `menugrid.use`, `widget.send` |
-| `voice` | Proximity voice over `voice.brodgar.io`: one link held for the client's life, a page of settings, push-to-talk, voice detection or an open microphone, a speaker drawn over whoever is talking, a window with a mute and a volume per player, and a mute petal on a player's ring | `voice.connect` |
+| `voice` | Talk to the players near your character with a push-to-talk key, and hear each of them from the direction they stand in | `voice.connect` |
 | `wasd-movement` | Walk with W, A, S and D | `player.move`, `widget.send` |
 | `water-meter` | A stamina-shaped bar counting every drop of water you are carrying | — |
 | `waypoints` | Queue movement orders and see where your character is headed with an on-map visual indicator | `player.move` |

@@ -3,9 +3,15 @@
   "name": "Voice",
   "version": "0.1.0",
   "author": "gonzalo",
-  "description": "Proximity voice over voice.brodgar.io: the link, a page of settings, push-to-talk, voice detection or an open mic, and a mute and a deafen key.",
+  "description": "Talk to the players near your character with a push-to-talk key, and hear each of them from the direction they stand in.",
   "api_version": "1.0",
-  "files": ["main.lua"],
+  "files": [
+    "options.lua",
+    "overlay.lua",
+    "window.lua",
+    "link.lua",
+    "main.lua"
+  ],
   "permissions": ["voice.connect"],
   "network": {
     "hosts": ["voice.brodgar.io"]

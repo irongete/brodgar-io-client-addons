@@ -1,0 +1,15 @@
+{
+  "id": "hud",
+  "name": "HUD",
+  "version": "1.0.0",
+  "author": "irongete",
+  "description": "Health, stamina and energy as three flat bars of their own, each moved on its own with ALT and a drag. Switch them on in Options > AddOns > HUD, where a slider each sets a bar's width, height, border, font size and colour; switched on, the client's own three meters are hidden, and switched off they are back.",
+  "api_version": "1.0",
+  "files": [
+    "config.lua",
+    "meters.lua",
+    "bars.lua",
+    "options.lua",
+    "main.lua"
+  ]
+}

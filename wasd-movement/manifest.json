@@ -1,7 +1,7 @@
 {
   "id": "wasd-movement",
   "name": "WASD Movement",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "brodgar",
   "description": "Walk with W, A, S and D, turn by moving the camera, and let go to stop.",
   "api_version": "1.0",

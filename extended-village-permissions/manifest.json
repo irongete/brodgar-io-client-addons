@@ -1,7 +1,7 @@
 {
   "id": "extended-village-permissions",
   "name": "Extended Village Permissions",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "author": "irongete",
   "description": "Assign up to 255 groups (0-254) beyond the client's native limit of eight.",
   "api_version": "1.0",

@@ -56,7 +56,7 @@ version is a commit. If the upload fails the manifest is put back and nothing is
 |---|---|---|
 | `actionbars` | Replaces the client's action bar with as many as the game has slots for: one bar per page of the server's 144, twelve buttons each, flat or upright, drag-and-drop from the action menu and a hotkey per slot | `actionbar.use`, `actionbar.res`, `actionbar.clear` |
 | `auto-flowermenu` | Whenever a radial menu opens, picks the first petal on your list that the ring offers — a list of captions you add and order by priority in Options ▸ AddOns | `flowermenu.select` |
-| `auto-toggle` | Turns on the toggles you pick, Criminal Acts and Swimming among them, every time a character logs in; picked on a grid of the action menu's own icons in Options ▸ AddOns, full colour where picked and dark where not | `menugrid.use` |
+| `auto-toggle` | Turns on the toggles you pick, Criminal Acts and Swimming among them, and puts the character on the speed you pick, every time a character logs in; picked in Options ▸ AddOns on a grid of the action menu's own icons, full colour where picked and dark where not, and on a row of the client's own speed pictures | `menugrid.use`, `speed.set` |
 | `autodrop` | Names a set of items and throws every one of them on the ground the moment it reaches that character's backpack — and what carries a count of its own, seeds above all, only once that count is 50 | `item.drop` |
 | `extended-village-permissions` | Assign up to 255 groups (0-254) beyond the client's native limit of eight | `widget.value` |
 | `builder-helper` | Remembers what every building site you have opened still needs, and one key floats each material's have/total over the site | — |

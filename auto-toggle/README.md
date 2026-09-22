@@ -1,13 +1,16 @@
 # Auto Toggle
 
-Turns on the toggles you pick, such as Criminal Acts and Swimming, every time a character logs in.
+Turns on the toggles you pick, such as Criminal Acts and Swimming, and puts the character on the speed you
+pick, every time a character logs in.
 
 ## Usage
 
 1. Open **Options ▸ AddOns ▸ Auto Toggle**. The page shows a grid of your character's toggle icons, the
-   same ones you find under **Adventure ▸ Toggle**.
-2. Click an icon to pick it. Picked toggles are drawn in full colour, the rest are drawn dark.
-3. From then on, every character that enters the world gets those toggles turned on.
+   same ones you find under **Adventure ▸ Toggle**, and under it the four speeds, drawn as the speed
+   selector on your HUD draws them.
+2. Click an icon to pick it. Picked toggles are drawn in full colour, the rest are drawn dark. The picked
+   speed is lit the way the selector lights the speed you are on; click it again to pick none.
+3. From then on, every character that enters the world gets those toggles turned on and that speed set.
 
 Your picks are kept between sessions and shared by every account and character on this client.
 
@@ -22,5 +25,6 @@ Your picks are kept between sessions and shared by every account and character o
 
 ## Permissions
 
-It asks for `menugrid.use`, which lets it press an entry in your action menu. The client shows you the
-request the first time you enable the addon; accept it and press **Reload UI**.
+It asks for `menugrid.use`, which lets it press an entry in your action menu, and `speed.set`, which lets
+it pick your movement speed. The client shows you the request the first time you enable the addon; accept
+it and press **Reload UI**.

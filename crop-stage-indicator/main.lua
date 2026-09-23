@@ -12,7 +12,7 @@ local LABEL_COLOR = {255, 255, 255}
 -- A label is bottom-centred on its point; half a digit down puts the number's middle on the ground point.
 local LABEL_OFFSET_Y = math.floor(hafen.ui():measure("8", {font = LABEL_FONT}).h / 2)
 
-local showing = false
+local showing = true
 local labelledCrops = {}   -- [Gob] = true while our label is on it
 
 local function isCrop(gob)

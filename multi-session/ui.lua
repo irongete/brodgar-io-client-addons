@@ -486,12 +486,14 @@ function MultiSession.UI.refresh_dock()
     along = along + length + configuration.GAP_SIZE
   end
 
-  -- A wide button (a saved account's, the "+") lies along the axis with its width and across it with its height
+  -- A wide button (a saved account's, the "+") lies along the axis with its width and across it with its height.
+  -- The width is ROW_WIDTH, the one every wide button is built with: a button just built still reads the
+  -- control's default width from :size(), which would centre it off to the right on the first layout.
   local function place_wide_button(button)
-    local button_size = button:size()
-    local x, y = item_origin(horizontal and button_size.h or button_size.w)
+    local button_height = button:size().h
+    local x, y = item_origin(horizontal and button_height or configuration.ROW_WIDTH)
     place(button, x, y)
-    advance(horizontal and button_size.w or button_size.h)
+    advance(horizontal and configuration.ROW_WIDTH or button_height)
   end
 
   local function place_square(square)

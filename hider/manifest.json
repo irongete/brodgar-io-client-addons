@@ -1,0 +1,13 @@
+{
+  "id": "hider",
+  "name": "Hider",
+  "version": "0.1.0",
+  "author": "irongete",
+  "description": "Hides the kinds of object you tick — trees, bushes, boulders, stockpiles, walls and fences — and lays a patch on the ground each of them stands on. Toggle it with the key assigned in Options > Game > Keybindings > Hider.",
+  "api_version": "1.0",
+  "files": [
+    "kinds.lua",
+    "options.lua",
+    "main.lua"
+  ]
+}

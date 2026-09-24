@@ -3,13 +3,14 @@
   "name": "Paint",
   "version": "1.0.4",
   "author": "irongete",
-  "description": "Draw on the ground with the mouse, in six colours, and rub it out with the eraser.",
+  "description": "Draw on the ground with the mouse, in six colours, rub it out with the eraser, and save drawings by name.",
   "api_version": "1.0",
   "files": [
     "brush.lua",
     "geometry.lua",
     "sheet.lua",
     "stroke.lua",
+    "drawings.lua",
     "window.lua",
     "main.lua"
   ]

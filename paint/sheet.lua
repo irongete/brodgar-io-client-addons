@@ -10,7 +10,8 @@ Paint.Sheet = Sheet
 local EDGE_BUDGET = 128 -- the client's limit per patch, counted across every piece of it
 
 Sheet.patches = {} -- {patch =, edges =, alive =}, in the order they were laid
-Sheet.marks = {}   -- one per piece still down: {record =, piece =, center =, halfX =, halfY =, radius =}
+Sheet.marks = {}   -- one per piece still down, in the order they were laid:
+                   -- {record =, piece =, color =, ring =, center =, halfX =, halfY =, radius =}
 
 local function log(message)
   hafen.log():write(Paint.NAME .. ": " .. tostring(message))
@@ -43,17 +44,15 @@ function Sheet.lay(record, color, ring, edgeCount, mark)
     record.alive = record.alive + 1
     piece = added
   end
-  mark.record, mark.piece = record, piece
+  mark.record, mark.piece, mark.color, mark.ring = record, piece, color, ring
   Sheet.marks[#Sheet.marks + 1] = mark
   return record
 end
 
--- Take one mark's piece up, and its patch once that holds nothing. The marks are unordered: the last one
--- fills the hole.
+-- Take one mark's piece up, and its patch once that holds nothing. The rest keep their order, which is the
+-- order a saved drawing is laid again in.
 local function takeUp(index)
-  local mark = Sheet.marks[index]
-  Sheet.marks[index] = Sheet.marks[#Sheet.marks]
-  Sheet.marks[#Sheet.marks] = nil
+  local mark = table.remove(Sheet.marks, index)
   local record = mark.record
   if record.patch:exists() then
     pcall(function() record.patch:piece():remove(mark.piece) end)

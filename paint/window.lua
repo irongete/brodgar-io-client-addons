@@ -1,7 +1,8 @@
 -- The tool window: a strip of six pencil cells and the eraser, the width slider with its caption and value,
--- and the Clear button.
+-- the Clear button, and the saved drawings: a name and Save, the list, Load and Delete, and a status line.
 
 local Brush = Paint.Brush
+local Drawings = Paint.Drawings
 local Sheet = Paint.Sheet
 local Stroke = Paint.Stroke
 
@@ -15,12 +16,14 @@ local CELL = 24          -- one tool cell of the strip
 local CELL_GAP = 3       -- between two cells
 local CAPTION_WIDTH = 40 -- the "Width"/"Rub" caption
 local VALUE_WIDTH = 32   -- the number the slider shows
+local BUTTON_WIDTH = 64  -- Clear, Save, Load and Delete
+local LIST_HEIGHT = 90   -- the saved drawings' list
 
 local STRIP_WIDTH = (CELL * Brush.TOOL_COUNT) + (CELL_GAP * (Brush.TOOL_COUNT - 1))
 local WINDOW_WIDTH = STRIP_WIDTH + (PADDING * 2)
 local SLIDER_WIDTH = WINDOW_WIDTH - (PADDING * 2) - CAPTION_WIDTH - VALUE_WIDTH - (GAP * 2)
 
-local window, captionLabel, valueLabel
+local window, captionLabel, valueLabel, nameEntry, drawingList, statusLabel
 
 -- Whether the user has the window open. `window:visible()` is true from the moment the window is built.
 Window.isOpen = false
@@ -56,6 +59,78 @@ function Window.disarm()
   Stroke.finish()
   updateCursor()
   refresh()
+end
+
+local function log(message)
+  hafen.log():write(Paint.NAME .. ": " .. tostring(message))
+end
+
+local function setStatus(text)
+  if statusLabel then statusLabel:text(text) end
+end
+
+-- Read the saved names into the list again, picking `pickName` when it is among them.
+local function refreshList(pickName)
+  local ok, names = pcall(Drawings.names)
+  if not ok then
+    log(names)
+    names = {}
+  end
+  drawingList:rows(names)
+  for _, name in ipairs(names) do
+    if name == pickName then drawingList:value(name) end
+  end
+end
+
+local function saveDrawing()
+  local name = nameEntry:value():match("^%s*(.-)%s*$")
+  if name == "" then
+    setStatus("Type a name first")
+    return
+  end
+  local ok, saved, detail = pcall(Drawings.save, name)
+  if not ok then
+    log(saved)
+    setStatus("Could not save")
+  elseif not saved then
+    setStatus(detail)
+  else
+    refreshList(name)
+    setStatus("Saved " .. name)
+  end
+end
+
+local function loadDrawing()
+  local name = drawingList:value()
+  if name == nil then
+    setStatus("Pick a drawing first")
+    return
+  end
+  local ok, laid, detail = pcall(Drawings.lay, name)
+  if not ok then
+    log(laid)
+    setStatus("Could not load")
+  elseif not laid then
+    setStatus(detail)
+  else
+    setStatus("Loaded " .. name)
+  end
+end
+
+local function deleteDrawing()
+  local name = drawingList:value()
+  if name == nil then
+    setStatus("Pick a drawing first")
+    return
+  end
+  local ok, problem = pcall(Drawings.remove, name)
+  if not ok then
+    log(problem)
+    setStatus("Could not delete")
+    return
+  end
+  refreshList()
+  setStatus("Deleted " .. name)
 end
 
 local function cellAt(x, y)
@@ -123,12 +198,42 @@ local function build()
                       row + math.floor((sliderHeight - valueLabel:size().h) / 2))
 
   row = row + sliderHeight + GAP
-  local clearButton = hafen.ui():button():parent(window):size(64):text("Clear")
+  local clearButton = hafen.ui():button():parent(window):size(BUTTON_WIDTH):text("Clear")
   clearButton:position(PADDING, row)
-  clearButton:on("Pressed", function()
-    hafen.timer():after(0, Sheet.clear) -- deferred: the press runs under the window's tree, not the ground's
+  -- Deferred, as every button here: the press runs under the window's tree, not the ground's.
+  clearButton:on("Pressed", function() hafen.timer():after(0, Sheet.clear) end)
+  row = row + clearButton:size().h + (GAP * 2)
+
+  nameEntry = hafen.ui():entry():parent(window):size(STRIP_WIDTH - BUTTON_WIDTH - GAP):value("")
+  local saveButton = hafen.ui():button():parent(window):size(BUTTON_WIDTH):text("Save")
+  local nameRowHeight = math.max(nameEntry:size().h, saveButton:size().h)
+  nameEntry:position(PADDING, row + math.floor((nameRowHeight - nameEntry:size().h) / 2))
+  saveButton:position(PADDING + STRIP_WIDTH - BUTTON_WIDTH,
+                      row + math.floor((nameRowHeight - saveButton:size().h) / 2))
+  nameEntry:on("Submitted", function() hafen.timer():after(0, saveDrawing) end)
+  saveButton:on("Pressed", function() hafen.timer():after(0, saveDrawing) end)
+  row = row + nameRowHeight + GAP
+
+  drawingList = hafen.ui():listbox():parent(window):size(STRIP_WIDTH, LIST_HEIGHT)
+  drawingList:position(PADDING, row)
+  -- The picked name goes into the entry, so Save overwrites it. A refresh of the rows clears the pick and
+  -- reports it as nil.
+  drawingList:on("Changed", function(name)
+    if name ~= nil then nameEntry:value(name) end
   end)
-  window:size(WINDOW_WIDTH, row + clearButton:size().h + PADDING)
+  row = row + LIST_HEIGHT + GAP
+
+  local loadButton = hafen.ui():button():parent(window):size(BUTTON_WIDTH):text("Load")
+  loadButton:position(PADDING, row)
+  loadButton:on("Pressed", function() hafen.timer():after(0, loadDrawing) end)
+  local deleteButton = hafen.ui():button():parent(window):size(BUTTON_WIDTH):text("Delete")
+  deleteButton:position(PADDING + STRIP_WIDTH - BUTTON_WIDTH, row)
+  deleteButton:on("Pressed", function() hafen.timer():after(0, deleteDrawing) end)
+  row = row + loadButton:size().h + GAP
+
+  statusLabel = hafen.ui():label():parent(window):text(" ")
+  statusLabel:position(PADDING, row)
+  window:size(WINDOW_WIDTH, row + statusLabel:size().h + PADDING)
 
   -- The chrome X hides the window rather than destroying it, so the menu button can show it again.
   window:on("Close", function(event)
@@ -143,5 +248,9 @@ function Window.show(visible)
   build()
   window:visible(visible)
   Window.isOpen = visible
-  if not visible then Window.disarm() end
+  if visible then
+    refreshList(drawingList:value()) -- another character may have saved one meanwhile
+  else
+    Window.disarm()
+  end
 end

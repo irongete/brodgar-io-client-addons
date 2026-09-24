@@ -5,6 +5,7 @@
 --   geometry.lua  the convex rings a stroke is built from, and the distance test the eraser uses
 --   sheet.lua     what is on the ground: the patches laid and the pieces still down
 --   stroke.lua    one stroke, from the press on the map to the release
+--   drawings.lua  the drawings saved in the store by name, and laying one again
 --   window.lua    the tool window
 --   main.lua      the map view subscriptions and the action-menu button, per character in the world
 

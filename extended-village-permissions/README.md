@@ -14,6 +14,16 @@ the whole range.
 Member and kin rows also carry the group number at their right edge, because every group above the eighth
 is drawn in the same colour and the number is the only thing that tells them apart.
 
+## Searching by group
+
+The member list of the **Village** and **Realm** tabs searches as you type: click the list and type part of
+a name. Type a group number instead, `12` say, and the list keeps the members of group 12 and nobody else.
+Clear it with Backspace, or click outside the list.
+
+- Only digits count as a group: `12` is group 12, while `b12` searches names as usual.
+- The search needs a client that lets addons join a list's search. On an older one the rest of the addon
+  works as before, and its log says the search cannot be filtered.
+
 ## Notes
 
 - The dropdown sits under the colour row where there is space, and beside it where there is not.

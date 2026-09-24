@@ -58,7 +58,7 @@ version is a commit. If the upload fails the manifest is put back and nothing is
 | `auto-flowermenu` | Whenever a radial menu opens, picks the first petal on your list that the ring offers — a list of captions you add and order by priority in Options ▸ AddOns | `flowermenu.select` |
 | `auto-toggle` | Turns on the toggles you pick, Criminal Acts and Swimming among them, and puts the character on the speed you pick, every time a character logs in; picked in Options ▸ AddOns on a grid of the action menu's own icons, full colour where picked and dark where not, and on a row of the client's own speed pictures | `menugrid.use`, `speed.set` |
 | `autodrop` | Names a set of items and throws every one of them on the ground the moment it reaches that character's backpack — and what carries a count of its own, seeds above all, only once that count is 50 | `item.drop` |
-| `extended-village-permissions` | Assign up to 255 groups (0-254) beyond the client's native limit of eight | `widget.value` |
+| `extended-village-permissions` | Assign up to 255 groups (0-254) beyond the client's native limit of eight, and type a group number into a village's member list to see only that group | `widget.value` |
 | `builder-helper` | Remembers what every building site you have opened still needs, and one key floats each material's have/total over the site | — |
 | `crop-stage-indicator` | Shows the growth stage number over every crop in view, toggled with a hotkey | — |
 | `essentials` | What the client does for a character the moment it enters the world: the toggles, the inventory and the movement speed, each a row in Options ▸ AddOns | `menugrid.use`, `speed.set` |

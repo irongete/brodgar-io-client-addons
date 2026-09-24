@@ -2,7 +2,8 @@
 -- Every colour row that can use the whole range (Village and Realm tabs, and the member panel) gets a
 -- dropdown with all 255 groups. The dropdown mirrors the row (`row:value()`) and drives it (`row:value(n)`),
 -- so the message to the server is the window's own. Member and kin rows also get the group number painted
--- at their right edge, since every group above the eighth is drawn in the same colour.
+-- at their right edge, since every group above the eighth is drawn in the same colour. Typing a group number
+-- into a village's or realm's member list keeps that group's members alone.
 
 local PICKER_WIDTH = 64 -- design px; the colour row is 160 wide and the panel 263, so it fits under or beside
 local PICKER_GAP = 2 -- design px between the colour row and the picker
@@ -125,14 +126,54 @@ local function numberRow(memberRow)
     end)
 end
 
+-- ---------------------------------------------------------------- the group number in a member search
+
+-- The member lists already filtered: [list] = its Search subscription, or false where the client has no
+-- Search key to give. Weak keys, so a list the client destroyed takes its entry with it.
+local searchedLists = setmetatable({}, {__mode = "k"})
+local noSearchLogged = false
+
+-- A search of only digits keeps the members of that group and nobody else; any other search is the client's.
+local function keepTypedGroup(event)
+    local typed = event:text()
+    if typed:match("^%d+$") then
+        event:match(event:row():group() == tonumber(typed))
+    end
+end
+
+-- A member list is found through one of its rows, since its class is the server's to name. A kin row has
+-- no parent to give (the Kin window stops that walk), so only village and realm lists are filtered.
+local function filterSearch(memberRow)
+    local list = memberRow:parent()
+    if list == nil or searchedLists[list] ~= nil then
+        return
+    end
+    local subscribed, subscription = pcall(function()
+        return list:on("Search", keepTypedGroup)
+    end)
+    searchedLists[list] = subscribed and subscription or false
+    if not subscribed and not noSearchLogged then
+        noSearchLogged = true
+        log("this client cannot filter a member search by group: " .. tostring(subscription))
+    end
+end
+
+local function memberRowAdded(memberRow)
+    if memberRow:group() == nil then
+        return -- only a kin or a polity member's row has a group
+    end
+    numberRow(memberRow)
+    filterSearch(memberRow)
+end
+
 local function watchMemberRows(session)
     local previous = memberRowWatchByUser[session:user()]
     if previous then
         previous:off()
     end
-    memberRowWatchByUser[session:user()] = session:ui():on("@ItemWidget", "Added", numberRow)
+    memberRowWatchByUser[session:user()] = session:ui():on("@ItemWidget", "Added", memberRowAdded)
     for _, memberRow in ipairs(session:ui():matchAll("@ItemWidget")) do
-        numberRow(memberRow)
+        memberRowAdded(memberRow)
     end
 end
 
@@ -142,6 +183,14 @@ hafen.event():on("SessionRemoved", function(session)
     groupRowWatchByUser[session:user()] = nil
     memberRowWatchByUser[session:user()] = nil
 end)
+
+-- A character already in the world when the addon loads (a :reload) gets no SessionEnteredWorld.
+for _, session in ipairs(hafen.session():list()) do
+    if session:ui():match("@GameUI") then
+        watchGroupRows(session)
+        watchMemberRows(session)
+    end
+end
 
 -- ---------------------------------------------------------------- :evp
 

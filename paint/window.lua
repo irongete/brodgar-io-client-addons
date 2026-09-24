@@ -130,7 +130,9 @@ local function build()
   end)
   window:size(WINDOW_WIDTH, row + clearButton:size().h + PADDING)
 
-  window:on("Close", function()
+  -- The chrome X hides the window rather than destroying it, so the menu button can show it again.
+  window:on("Close", function(event)
+    event:preventDefault()
     window:visible(false)
     Window.isOpen = false
     Window.disarm()

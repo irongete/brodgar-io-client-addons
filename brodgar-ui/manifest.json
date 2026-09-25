@@ -1,7 +1,7 @@
 {
   "id": "brodgar-ui",
   "name": "Brodgar UI",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "author": "brodgar",
   "description": "The minimap in a bare panel you drag and size anywhere, the chat as a window with a tab per channel, Ctrl+Space to find any action by name and run it, an action bar for every page of the belt, the client in the Simple theme, a key that hides the kinds of object you tick, the footprint of every object drawn on the ground, and as many items out of a stockpile as you type in one press.",
   "api_version": "1.0",

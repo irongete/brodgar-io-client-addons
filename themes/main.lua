@@ -128,3 +128,54 @@ hafen.event():on("Load", function()
   declareOption()
   if themeOption ~= nil then wear(themeOption:value()) end
 end)
+
+-- ---------------------------------------------------------------- presets
+
+-- What a bundle -- an addon that lists this one in its dependencies -- may hand preset(): the theme the client
+-- starts in. A bundle's file runs after this addon's Load, when the option is declared and a theme worn, so a
+-- preset cannot be the option's default. It acts once instead, the first time it is called: a player who has
+-- picked no theme gets it written as their pick, which the dropdown shows and Changed wears. A theme picked
+-- before it, or after, is the player's and stays. The store remembers that a preset has acted.
+local presetState = hafen.store():var("preset")   -- theme: the theme the first preset named
+
+local function presetTheme(name)
+  if type(name) ~= "string" then
+    error('theme is the name of a theme this addon ships, such as "simple"', 0)
+  end
+  if themes[name] == nil then
+    error('no theme called "' .. name .. '"', 0)
+  end
+  if presetState.theme ~= nil then
+    return
+  end
+  presetState.theme = name
+  hafen.store():flush()
+  if themeOption:value() == themeOption:default() then
+    themeOption:value(name)
+  end
+end
+
+local PRESETS = {
+  theme = presetTheme,
+}
+
+-- A key this version does not know is skipped with a log line, so a bundle written for a later version still
+-- loads.
+local function preset(values)
+  if type(values) ~= "table" then
+    error("preset takes a table: {theme = ...}", 0)
+  end
+  for key, value in pairs(values) do
+    local apply = PRESETS[key]
+    if apply then
+      apply(value)
+    else
+      hafen.log():write("preset: '" .. tostring(key) .. "' is not one this version knows; skipped")
+    end
+  end
+end
+
+-- A client without the addons collection offers no exports: the client then starts in the theme picked.
+pcall(function()
+  hafen.client():addons():export({preset = preset})
+end)

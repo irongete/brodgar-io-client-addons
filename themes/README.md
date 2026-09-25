@@ -33,3 +33,17 @@ size of the surface it replaces so it scales with the interface.
 
 What a key can name and what a rule can say is in the
 [theming guide](https://irongete.github.io/brodgar-io-client/addons/guides/theming.html).
+
+## For bundles
+
+An addon that lists `themes>=1.1.0` in its `dependencies` can pick the theme the client starts in, from its
+own file:
+
+```lua
+hafen.client():addons():get("themes"):api().preset{
+  theme = "simple",   -- one of the themes this addon ships, by name
+}
+```
+
+It acts once, the first time it is called. If the player has picked no theme yet, it becomes their pick and
+the dropdown shows it. A theme the player picked, before or after, is theirs and stays.

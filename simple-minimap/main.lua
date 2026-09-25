@@ -20,8 +20,18 @@
 -- map/claim/icon buttons. They go as two whole panels because the fold arrows are the buttons' siblings, not
 -- their children -- hiding the buttons alone would leave an arrow over an empty corner. Both come back on
 -- Disable.
+--
+-- Where the panel stands and how big it is are remembered once for every character: widget:remember with the
+-- addon's own store keeps one place, relative to the screen, that a drop on any character's panel writes and
+-- that the panel of the character taking the screen is put back at. Until the user moves it, a rule of this
+-- addon's own stands it in the screen's top-right corner.
+--
+-- A bundle -- an addon that lists this one in its dependencies -- can start the panel in another corner and
+-- the map at another size through the preset this addon exports, at the end of the file. They are starting
+-- values only: the place and the box the user leaves the panel at are put back over them. A preset's numbers
+-- are screen pixels, the same on every interface scale; everything else here is design pixels.
 
-local EDGE = 8     -- the box's corners (gfx/hud/wnd, 32 px at scale 4): what the frame art needs
+local EDGE = 8    -- the box's corners (gfx/hud/wnd, 32 px at scale 4): what the frame art needs
 local PAD  = EDGE + 2   -- the frame and a little air: where the map and the row start
 local MIN  = 64    -- a smaller map cannot be read
 local GRIP = 25    -- the client's sizer, drawn by our grip in the panel's bottom-right corner
@@ -42,9 +52,22 @@ local ROW   = 24   -- the row's height, above the map: a button and a little air
 local ROW_W = #BUTTONS * SLOT + (#BUTTONS - 1) * GAP
 local MIN_W = math.max(MIN, ROW_W)   -- the map is never narrower than the row above it
 
-local saved = hafen.store():var("state")   -- x, y: where the panel stands; w, h: the map's size
-
 local dressed = {}   -- one record per character in the world: its map, its panel and the corner it came out of
+local startingMapSize = nil   -- {width, height} a bundle's preset named; nil: the map starts at its own size
+
+-- Where the panel stands until the user moves it: the screen's top-right corner, following the screen. A place
+-- the user dropped it at is put back by remember() below, a level above this rule.
+local PANEL_RULE = "[name=simple-minimap/map]"
+local sheet = hafen.ui():sheet()
+sheet:rule(PANEL_RULE):anchor{to = "screen", at = "topright", offset = {-8, 8}}
+sheet:install()
+
+-- The panel's place and box, one for every character. A client that predates the store argument ignores it and
+-- remembers the panel per character, refusing a second character's panel under the same name while the first
+-- is up: that panel then stays in the corner, and everything else about it works.
+local function remember(panel)
+  pcall(function() panel:remember("map", hafen.store()) end)
+end
 
 -- Show or hide one of the corner's own panels. The write is refused when another addon already holds the
 -- panel; the map is in our panel either way, so the refusal is left alone.
@@ -103,13 +126,17 @@ end
 local function dress(record)
   if record.panel or not record.map:exists() then return end
   local box = record.map:size()
-  local width, height = math.max(MIN_W, saved.w or box.w), math.max(MIN, saved.h or box.h)
+  local startWidth, startHeight = box.w, box.h
+  if startingMapSize then   -- a bundle's preset: the size to start at instead of the corner's own
+    startWidth, startHeight = startingMapSize.width, startingMapSize.height
+  end
+  local width, height = math.max(MIN_W, startWidth), math.max(MIN, startHeight)
   local boxW, boxH = boxFor(width, height)
 
   -- Built into the character's own tree: the map reads its session and would go dark in the addon layer.
-  -- Named, which is what a theme's rule points at; the stock is what it looks like until one does.
-  local panel = hafen.ui():widget():name("map"):parent(record.hud)
-    :position(saved.x or 40, saved.y or 40):size(boxW, boxH)
+  -- Named, which is what a theme's rule points at, and this addon's corner rule too; the stock is what it
+  -- looks like until a theme names it.
+  local panel = hafen.ui():widget():name("map"):parent(record.hud):size(boxW, boxH)
   panel:stock{
     bg     = {res = "gfx/hud/wnd/lg/bg", mode = "tile"},
     border = {box = "gfx/hud/wnd", mode = "tile"},
@@ -148,22 +175,17 @@ local function dress(record)
   put(record.cornerPanel, false)
   put(record.menuPanel, false)
 
-  panel:on("Dragged", function(event)
-    saved.x, saved.y = event:x(), event:y()
-    hafen.store():flush()
-  end)
-
   -- Once, on release: the floor is applied here rather than during the drag, where the gesture and this
-  -- handler would take turns writing the size. The box that stands is the one saved.
+  -- handler would take turns writing the size. The box that stands is the one remembered.
   panel:on("Resized", function(event)
     local minW, minH = boxFor(MIN_W, MIN)
     local floorW, floorH = math.max(minW, event:w()), math.max(minH, event:h())
     if floorW ~= event:w() or floorH ~= event:h() then panel:size(floorW, floorH) end
-    saved.w, saved.h = mapIn(floorW, floorH)
-    hafen.store():flush()
   end)
 
   panel:on("Update", function() follow(record) end)
+
+  remember(panel)   -- last: the place and the box the user left it at, over the corner and the map's own size
 end
 
 local function undress(record)
@@ -217,10 +239,91 @@ local function detach(session)
   end
 end
 
+-- ---------------------------------------------------------------- presets
+
+-- A preset's screen pixels in design pixels: the client multiplies every widget's numbers by the interface
+-- scale, so dividing by it here makes 300 look 300 on any scale.
+local function toDesign(pixels)
+  return math.floor(pixels / hafen.ui():scale() + 0.5)
+end
+
+-- What preset() takes, key by key. Each one checks its value and raises to the caller when it is not one. The
+-- place goes straight into the sheet, which checks the corner itself.
+local function presetPlace(place)
+  if type(place) ~= "table" or type(place.at) ~= "string" then
+    error("place is {at = <corner>, offset = {x, y}}", 0)
+  end
+  local offset = place.offset or {0, 0}
+  if type(offset[1]) ~= "number" or type(offset[2]) ~= "number" then
+    error("place is {at = <corner>, offset = {x, y}}", 0)
+  end
+  sheet:rule(PANEL_RULE):anchor{to = "screen", at = place.at, offset = {toDesign(offset[1]), toDesign(offset[2])}}
+end
+
+local function presetMapSize(size)
+  if type(size) ~= "table" or type(size.width) ~= "number" or type(size.height) ~= "number" then
+    error("mapSize is {width = <px>, height = <px>}", 0)
+  end
+  startingMapSize = {width = toDesign(size.width), height = toDesign(size.height)}
+end
+
+local PRESETS = {
+  place = presetPlace,
+  mapSize = presetMapSize,
+}
+
+-- A preset given while panels already stand builds them again with it. remember() then puts the user's own
+-- place and box back over the new starting values. At load there are none yet: the characters are announced
+-- after every addon's files have run, a bundle's preset among them.
+local function panelsStanding()
+  for _, record in ipairs(dressed) do
+    if record.panel then
+      return true
+    end
+  end
+  return false
+end
+
+local function rebuildPanels()
+  for _, record in ipairs(dressed) do
+    if record.panel then
+      undress(record)
+      dress(record)
+    end
+  end
+end
+
+-- A key this version does not know is skipped with a log line, so a bundle written for a later version still
+-- loads.
+local function preset(values)
+  if type(values) ~= "table" then
+    error("preset takes a table: {place = ..., mapSize = ...}", 0)
+  end
+  for key, value in pairs(values) do
+    local apply = PRESETS[key]
+    if apply then
+      apply(value)
+    else
+      hafen.log():write("preset: '" .. tostring(key) .. "' is not one this version knows; skipped")
+    end
+  end
+  -- On the step, where every character's tree can be reached, whoever called.
+  if panelsStanding() then
+    hafen.timer():after(0, rebuildPanels)
+  end
+end
+
 -- ---------------------------------------------------------------- lifecycle
 
 hafen.event():on("SessionEnteredWorld", function(session) attach(session) end)
 hafen.event():on("SessionRemoved", function(session) detach(session) end)
+
+-- A drop on one character's panel moves no other: the panel of the character taking the screen is put back at
+-- the place every character shares.
+hafen.event():on("SessionSelected", function(session)
+  local record = findRecord(session)
+  if record and record.panel and record.panel:exists() then remember(record.panel) end
+end)
 
 -- The engine restores what the addon holds, but the two corner panels have no toggle of their own: the rule is
 -- "the widget ends up as the user was seeing it", and what they were seeing is this panel. Disable fires
@@ -230,4 +333,10 @@ hafen.event():on("Disable", function()
     pcall(undress, record)
   end
   dressed = {}
+end)
+
+-- The preset, for a bundle to call from its own file body. A client without the addons collection offers no
+-- exports: the panel then starts where it always does.
+pcall(function()
+  hafen.client():addons():export({preset = preset})
 end)

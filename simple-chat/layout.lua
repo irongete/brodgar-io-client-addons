@@ -44,8 +44,8 @@ Layout.MIN_WIDTH = 240
 Layout.MIN_HEIGHT = Layout.STRIP + 120
 Layout.DEFAULT_WIDTH = 440
 Layout.DEFAULT_HEIGHT = Layout.STRIP + 190
-Layout.DEFAULT_X = 20
-Layout.DEFAULT_Y = 20
+Layout.DEFAULT_CORNER = "topleft" -- until the user moves it: the screen's corner the window stands in...
+Layout.DEFAULT_OFFSET = {20, 20} -- ...and this far in from it
 
 -- tab.png / tab-on.png are gfx/hud/wnd's corners and runs at design scale. tab-on is sliced 8/8/8/1: its
 -- bottom row carries the two side runs only, so the selected tab has no foot and runs down into the frame.

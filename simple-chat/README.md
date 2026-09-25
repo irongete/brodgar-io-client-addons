@@ -24,3 +24,18 @@ The client's own chat is hidden while the addon runs and given back as it was fo
 - The wheel scrolls back, and a view you have scrolled up stays put while new lines arrive.
 - Nothing in the client's own settings is changed: the key goes back to the client's chat when the addon
   is disabled or removed.
+
+## For bundles
+
+An addon that lists `simple-chat>=1.1.0` in its `dependencies` can start the window somewhere else, from its
+own file:
+
+```lua
+hafen.client():addons():get("simple-chat"):api().preset{
+  place = {at = "bottomright", offset = {-8, -8}},   -- the corner it starts in, as a sheet anchor
+  size = {width = 480, height = 260},                -- the size it starts at
+}
+```
+
+The numbers are screen pixels, so the window starts the same size whatever the player's interface scale. Both
+only say where the window starts: once the player moves or resizes it, their place and size win.

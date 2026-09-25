@@ -21,6 +21,17 @@ SimpleChat.Window = Window
 
 local saved = hafen.store():var("window") -- x, y, w, h: one box for every character on the account
 
+-- The size the window starts at until the user resizes it; a bundle's preset may name another.
+local startingSize = {width = Layout.DEFAULT_WIDTH, height = Layout.DEFAULT_HEIGHT}
+
+-- Where the window stands until the user moves it: a corner of the screen, following the screen. A place the
+-- user dropped it at is written back as a position, a level above this rule. A bundle's preset may name
+-- another corner.
+local PLACE_RULE = "[name=simple-chat/window]"
+local sheet = hafen.ui():sheet()
+sheet:rule(PLACE_RULE):anchor{to = "screen", at = Layout.DEFAULT_CORNER, offset = Layout.DEFAULT_OFFSET}
+sheet:install()
+
 -- Keeps the whole window inside the HUD (the client's own rule keeps 100 px of it). Runs every frame, so a
 -- drag is bounded as it happens.
 local function clampOnScreen(window)
@@ -95,14 +106,17 @@ function Window.build(session)
         return
     end
     local pad = Layout.PAD
-    local width = math.max(Layout.MIN_WIDTH, saved.w or Layout.DEFAULT_WIDTH)
-    local height = math.max(Layout.MIN_HEIGHT, saved.h or Layout.DEFAULT_HEIGHT)
+    local width = math.max(Layout.MIN_WIDTH, saved.w or startingSize.width)
+    local height = math.max(Layout.MIN_HEIGHT, saved.h or startingSize.height)
     local frameHeight = height - Layout.STRIP
     local panelHeight = frameHeight - Layout.SEAT
 
+    -- Named, which is what the place rule points at; a place the user dropped it at outranks the rule.
     local window = {session = session, hud = hud, frame = {}, tabs = {}, lines = {}, scroll = 0}
-    window.root = hafen.ui():widget():parent(hud):size(width, height)
-        :position(saved.x or Layout.DEFAULT_X, saved.y or Layout.DEFAULT_Y)
+    window.root = hafen.ui():widget():name("window"):parent(hud):size(width, height)
+    if saved.x and saved.y then
+        window.root:position(saved.x, saved.y)
+    end
     SimpleChat.windows[session] = window -- from here on there is something for drop to tidy
 
     -- Children are hit last-added first: the grip goes first, so every control above it takes its own press.
@@ -224,4 +238,30 @@ function Window.raise(session)
         hafen.log():write("simple-chat could not build its window: " .. tostring(failure))
         Window.drop(session)
     end
+end
+
+-- A preset's screen pixels in design pixels: the client multiplies every widget's numbers by the interface
+-- scale, so dividing by it here makes a preset's 300 look 300 on any scale.
+local function toDesign(pixels)
+    return math.floor(pixels / hafen.ui():scale() + 0.5)
+end
+
+-- A bundle's preset (main.lua): where the window starts and how big, in screen pixels. Each raises to the
+-- caller on a value it cannot take; the place goes straight into the sheet, which checks the corner itself.
+function Window.presetPlace(place)
+    if type(place) ~= "table" or type(place.at) ~= "string" then
+        error("place is {at = <corner>, offset = {x, y}}", 0)
+    end
+    local offset = place.offset or {0, 0}
+    if type(offset[1]) ~= "number" or type(offset[2]) ~= "number" then
+        error("place is {at = <corner>, offset = {x, y}}", 0)
+    end
+    sheet:rule(PLACE_RULE):anchor{to = "screen", at = place.at, offset = {toDesign(offset[1]), toDesign(offset[2])}}
+end
+
+function Window.presetSize(size)
+    if type(size) ~= "table" or type(size.width) ~= "number" or type(size.height) ~= "number" then
+        error("size is {width = <px>, height = <px>}", 0)
+    end
+    startingSize = {width = toDesign(size.width), height = toDesign(size.height)}
 end

@@ -1,4 +1,5 @@
--- Entry point: session and chat events, the `:simplechat` command and the `toggle` hotkey.
+-- Entry point: session and chat events, the `:simplechat` command, the `toggle` hotkey and the preset a bundle
+-- calls.
 
 local Window = SimpleChat.Window
 local Tabs = SimpleChat.Tabs
@@ -66,3 +67,37 @@ end
 
 hafen.console():on("simplechat", toggle)
 hafen.client():options():keybindings():on("toggle", toggle)
+
+-- What a bundle -- an addon that lists this one in its dependencies -- may hand preset(): where the window
+-- starts and how big. Starting values only: the place and the box the user leaves it at are saved and put
+-- back over them.
+local PRESETS = {
+    place = Window.presetPlace,
+    size = Window.presetSize,
+}
+
+-- A key this version does not know is skipped with a log line, so a bundle written for a later version still
+-- loads.
+local function preset(values)
+    if type(values) ~= "table" then
+        error("preset takes a table: {place = ..., size = ...}", 0)
+    end
+    for key, value in pairs(values) do
+        local apply = PRESETS[key]
+        if apply then
+            apply(value)
+        else
+            hafen.log():write("preset: '" .. tostring(key) .. "' is not one this version knows; skipped")
+        end
+    end
+    -- Windows already standing are built again with it, on the step, where every character's HUD can be
+    -- written. At load there are none yet: the characters are announced after every addon's files have run.
+    for session in pairs(SimpleChat.windows) do
+        hafen.timer():after(0, function() Window.raise(session) end)
+    end
+end
+
+-- A client without the addons collection offers no exports: the window then starts where it always does.
+pcall(function()
+    hafen.client():addons():export({preset = preset})
+end)

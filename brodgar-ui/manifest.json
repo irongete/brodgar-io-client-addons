@@ -3,12 +3,13 @@
   "name": "Brodgar UI",
   "version": "1.0.0",
   "author": "brodgar",
-  "description": "The minimap in a bare panel you drag and size anywhere, the chat as a window with a tab per channel, Ctrl+Space to find any action by name and run it, an action bar for every page of the belt, the client in the Simple theme, a key that hides the kinds of object you tick, the footprint of every object drawn on the ground, and as many items out of a stockpile as you type in one press.",
+  "description": "The minimap in a bare panel you drag and size anywhere, the chat as a window with a tab per channel, Ctrl+Space to find any action by name and run it, an action bar for every page of the belt, the client in the Simple theme, a key that hides the kinds of object you tick, the footprint of every object drawn on the ground, as many items out of a stockpile as you type in one press, and several characters played at once, switched with one click.",
   "api_version": "1.0",
   "bundle": true,
   "dependencies": [
     "simple-minimap>=1.1.0", "simple-chat>=1.1.0", "quick-search>=1.0.3", "actionbars>=1.1.0",
-    "themes>=1.1.0", "hider>=0.1.1", "hitboxes>=0.5.2", "stockpile-take>=1.0.3"
+    "themes>=1.1.0", "hider>=0.1.1", "hitboxes>=0.5.2", "stockpile-take>=1.0.3",
+    "multi-session>=1.0.14"
   ],
   "files": ["main.lua"]
 }

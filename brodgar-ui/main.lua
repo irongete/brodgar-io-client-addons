@@ -1,7 +1,7 @@
--- Brodgar UI: a pack of Simple Minimap, Simple Chat, Quick Search, Actionbars, Themes, Hider, Hitboxes and
--- Stockpile Take, set up to work together.
+-- Brodgar UI: a pack of Simple Minimap, Simple Chat, Quick Search, Actionbars, Themes, Hider, Hitboxes,
+-- Stockpile Take and Multi-Session, set up to work together.
 --
--- The manifest lists the eight as dependencies, so each one that is on has run by now. The player may turn any of
+-- The manifest lists the nine as dependencies, so each one that is on has run by now. The player may turn any of
 -- them off on its own and the bundle still loads, so each preset goes only to an addon that is on: :api() is nil
 -- for one that is not. This file only says where two of them start and which theme the client starts in; what
 -- the user changes afterwards stays each addon's own to remember. A preset's numbers are screen pixels, the same
@@ -18,11 +18,11 @@ if simpleMinimap then
   }
 end
 
--- The chat: the screen's bottom-right corner, at Simple Chat's own size.
+-- The chat: the screen's bottom-left corner, at Simple Chat's own size.
 local simpleChat = addons:get("simple-chat"):api()
 if simpleChat then
   simpleChat.preset{
-    place = {at = "bottomright", offset = {-8, -8}},
+    place = {at = "bottomleft", offset = {8, -8}},
   }
 end
 
@@ -36,4 +36,5 @@ if themes then
 end
 
 -- The rest take nothing: Quick Search opens its field in the middle of the screen, Actionbars starts its
--- first bar centred on the bottom edge, and Hider, Hitboxes and Stockpile Take are as their addons ship them.
+-- first bar centred on the bottom edge, and Hider, Hitboxes, Stockpile Take and Multi-Session are as their
+-- addons ship them.

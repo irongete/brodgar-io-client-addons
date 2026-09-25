@@ -17,8 +17,9 @@ A pack of eight addons, set up to work together:
   in one press.
 
 Install it from **AddOns ▸ Browse** in the client, where the **Bundles** chip lists it: that installs the
-eight with it and enables them, each one that asks for permissions asking you in turn. Each one keeps its
-own keys, options and permissions, and its own page explains everything it does.
+eight with it and enables them, asking once, in one dialog, for all their permissions. Each one keeps its own
+keys, options and permissions, and its own page explains everything it does. Turn any of them off on its own
+in **AddOns ▸ Installed** and Brodgar UI goes on with the rest.
 
 ## What Brodgar UI sets
 
@@ -42,5 +43,5 @@ These only say how things start: once you move or resize one, or pick another th
 
 ## Permissions
 
-Brodgar UI asks for none. Simple Chat, Quick Search, Actionbars and Stockpile Take ask for theirs when you
-enable them.
+Brodgar UI asks for none. Simple Chat, Quick Search, Actionbars and Stockpile Take ask for theirs, all in the
+one dialog, when you install or enable Brodgar UI.

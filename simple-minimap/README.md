@@ -36,10 +36,13 @@ An addon that lists `simple-minimap>=1.1.0` in its `dependencies` can start the 
 its own file:
 
 ```lua
-hafen.client():addons():get("simple-minimap"):api().preset{
-  place = {at = "topright", offset = {-8, 8}},   -- the corner it starts in, as a sheet anchor
-  mapSize = {width = 300, height = 300},        -- the size the map starts at
-}
+local minimap = hafen.client():addons():get("simple-minimap"):api()
+if minimap then   -- nil while the player has Simple Minimap turned off
+  minimap.preset{
+    place = {at = "topright", offset = {-8, 8}},   -- the corner it starts in, as a sheet anchor
+    mapSize = {width = 300, height = 300},        -- the size the map starts at
+  }
+end
 ```
 
 The numbers are screen pixels, so the panel starts the same size whatever the player's interface scale. Both

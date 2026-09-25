@@ -31,10 +31,13 @@ An addon that lists `simple-chat>=1.1.0` in its `dependencies` can start the win
 own file:
 
 ```lua
-hafen.client():addons():get("simple-chat"):api().preset{
-  place = {at = "bottomright", offset = {-8, -8}},   -- the corner it starts in, as a sheet anchor
-  size = {width = 480, height = 260},                -- the size it starts at
-}
+local chat = hafen.client():addons():get("simple-chat"):api()
+if chat then   -- nil while the player has Simple Chat turned off
+  chat.preset{
+    place = {at = "bottomright", offset = {-8, -8}},   -- the corner it starts in, as a sheet anchor
+    size = {width = 480, height = 260},                -- the size it starts at
+  }
+end
 ```
 
 The numbers are screen pixels, so the window starts the same size whatever the player's interface scale. Both

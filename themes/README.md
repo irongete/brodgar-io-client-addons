@@ -40,9 +40,12 @@ An addon that lists `themes>=1.1.0` in its `dependencies` can pick the theme the
 own file:
 
 ```lua
-hafen.client():addons():get("themes"):api().preset{
-  theme = "simple",   -- one of the themes this addon ships, by name
-}
+local themes = hafen.client():addons():get("themes"):api()
+if themes then   -- nil while the player has Themes turned off
+  themes.preset{
+    theme = "simple",   -- one of the themes this addon ships, by name
+  }
+end
 ```
 
 It acts once, the first time it is called. If the player has picked no theme yet, it becomes their pick and

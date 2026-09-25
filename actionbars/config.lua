@@ -1,7 +1,8 @@
--- One character's bars: which are on, which way each stands, how many buttons it shows and where it
--- stands. All of it is a var in that character's own scope of the addon's store, so every character has
--- their own, and one nobody has played with starts with Actionbar1 alone, flat, in the middle of the
--- screen. A record outlives the bar being turned off, so it comes back where and how it was.
+-- One character's bars: which are on, which way each stands and how many buttons it shows. All of it is a
+-- var in that character's own scope of the addon's store, so every character has their own, and one nobody
+-- has played with starts with Actionbar1 alone, flat, centred on the bottom edge of the screen. A record
+-- outlives the bar being turned off, so it comes back as it was. Where a bar stands is the client's to keep
+-- (bars.lua); a place saved here is an earlier version's.
 
 local Layout = Actionbars.Layout
 
@@ -136,29 +137,27 @@ end
 
 -- ---------------------------------------------------------------- the place
 
--- Centre of the screen for a box: where a bar first appears, and what Reset gives a lone bar.
+-- Centre of the screen for a box: where a bar other than Actionbar1 first appears.
 function Config.centre(boxWidth, boxHeight, screenWidth, screenHeight)
     local x = math.max(0, math.floor((screenWidth - boxWidth) / 2))
     local y = math.max(0, math.floor((screenHeight - boxHeight) / 2))
     return x, y
 end
 
--- The record with a place on it, the place decided on first use: the centre of the screen, or the default
--- place while the HUD has no size yet (nil or 0). nil for a session with no character.
-function Config.placed(session, barNumber, boxWidth, boxHeight, screenWidth, screenHeight)
-    local record = recordFor(session, barNumber)
-    if not record then
-        return nil
+-- The place 1.0.5 and earlier kept for this character's bar, in pixels: where it first appeared, a drag's
+-- or Reset's. nil when there is none. It still starts the bar until a place the client keeps outranks it or
+-- Reset forgets it.
+function Config.oldPlace(session, barNumber)
+    local record = Config.find(session, barNumber)
+    if record and record.x and record.y then
+        return record.x, record.y
     end
-    if record.x and record.y then
-        return record
-    end
+    return nil
+end
 
-    local x, y = Layout.DEFAULT_X, Layout.DEFAULT_Y
-    if screenWidth and screenWidth > 0 and screenHeight and screenHeight > 0 then
-        x, y = Config.centre(boxWidth, boxHeight, screenWidth, screenHeight)
+function Config.forgetOldPlace(session, barNumber)
+    local record = Config.find(session, barNumber)
+    if record then
+        record.x, record.y = nil, nil
     end
-    record.x, record.y = x, y
-    Config.save(session)
-    return record
 end

@@ -1,6 +1,6 @@
 -- The bars follow each character's settings: per login, the client's own belt is hidden and the bars built
 -- or destroyed; hotkeys are declared for the bars the character on screen has on, and the options page is
--- loaded with that character's settings. Reset puts every bar back mid-screen.
+-- loaded with that character's settings. Reset stacks every bar back on the bottom edge.
 
 local Layout = Actionbars.Layout
 local Config = Actionbars.Config
@@ -92,49 +92,33 @@ end
 
 -- ---------------------------------------------------------------- reset
 
--- One character's bars that are on, centred as one stack in number order, and saved. false with no HUD
--- size to measure against (a login not yet in the world, or a HUD with no size).
+-- One character's bars that are on, as one stack centred on the bottom edge: Actionbar1 on the edge and each
+-- next bar above the one before. false with no HUD size to measure against (a login not yet in the world,
+-- or a HUD with no size).
 local function resetSession(session)
     local hud = session:exists() and session:character() and session:ui():match("@GameUI")
     local size = hud and hud:size()
     if not (size and size.w > 0 and size.h > 0) then
         return false
     end
-    local screenWidth, screenHeight = size.w, size.h
 
-    local stackHeight = 0
-    for barNumber = 1, Layout.MAX_BARS do
-        if Config.isOn(session, barNumber) then
-            local _, boxHeight = Layout.barBox(Config.isUpright(session, barNumber), Config.buttonCount(session, barNumber))
-            if stackHeight > 0 then
-                stackHeight = stackHeight + Layout.STACK_GAP
-            end
-            stackHeight = stackHeight + boxHeight
-        end
-    end
-
-    local y = math.max(0, math.floor((screenHeight - stackHeight) / 2))
+    local bottom = size.h -- where the next bar's bottom edge goes
     for barNumber = 1, Layout.MAX_BARS do
         if Config.isOn(session, barNumber) then
             local boxWidth, boxHeight = Layout.barBox(Config.isUpright(session, barNumber), Config.buttonCount(session, barNumber))
-            local record = Config.placed(session, barNumber, boxWidth, boxHeight, screenWidth, screenHeight)
-            if not record then
-                return false
-            end
-            local centredX = Config.centre(boxWidth, boxHeight, screenWidth, screenHeight)
-            record.x = centredX
-            record.y = y
-            y = y + boxHeight + Layout.STACK_GAP
-            Bars.move(session, barNumber)
+            local x = math.max(0, math.floor((size.w - boxWidth) / 2))
+            local y = math.max(0, bottom - boxHeight)
+            Config.forgetOldPlace(session, barNumber)
+            Bars.resetPlace(session, barNumber, x, y)
+            bottom = y - Layout.STACK_GAP
         end
     end
     Config.save(session)
     return true
 end
 
--- Every character in the world gets their bars back mid-screen, each measured against their own HUD. A
--- higher interface scale or a smaller window can leave a bar past the edge with no part of it left to
--- drag; this is the way back. A character not logged in keeps their places.
+-- Every character in the world gets their bars back on the bottom edge, each measured against their own HUD,
+-- and where they had dragged them is forgotten. A character not logged in keeps their places.
 function Sync.resetBars()
     local resetCount = 0
     for _, session in ipairs(hafen.session():list()) do
@@ -146,9 +130,9 @@ function Sync.resetBars()
         Options.showStatus("no character is in the world, so there is no screen to measure and no bar drawn"
             .. " to put back on it")
     elseif resetCount == 1 then
-        Options.showStatus("every bar is back in the middle of the screen")
+        Options.showStatus("every bar is back on the bottom edge of the screen")
     else
-        Options.showStatus("every bar is back in the middle of the screen, on all " .. resetCount
+        Options.showStatus("every bar is back on the bottom edge of the screen, on all " .. resetCount
             .. " characters in the world")
     end
 end

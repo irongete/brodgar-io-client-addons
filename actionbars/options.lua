@@ -116,8 +116,8 @@ addonOptions:panel(function(root)
         end)
     end
     local resetButton = hafen.ui():button():parent(root):size(160):text("Reset bars position")
-        :tooltip("put every bar back in the middle of the screen, stacked -- for when one has ended up past an"
-            .. " edge and there is nothing left to drag")
+        :tooltip("stack every bar back on the bottom edge of the screen, centred, and forget where they were"
+            .. " dragged")
     resetButton:on("Pressed", function()
         runNextStep(Actionbars.Sync.resetBars)
     end)

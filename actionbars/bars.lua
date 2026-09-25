@@ -14,6 +14,37 @@ local barsBySession = {} -- [session] = { [barNumber] = bar widget }
 
 local LABEL_STYLE = {color = Layout.LABEL_COLOR} -- one table for every atext, not one per cell per frame
 
+-- A bar with no place of its own stands centred on the screen's bottom edge, where the client's own bar
+-- stood, and the anchor follows the screen as the game window is resized. That is Actionbar1 until the
+-- player first drags it: every other bar is given the middle of the screen when it is turned on, a place
+-- above this rule, so it never lands on Actionbar1.
+local sheet = hafen.ui():sheet()
+sheet:rule("[name=actionbars/bar]"):anchor{to = "screen", at = "bottom"}
+sheet:install()
+
+-- ---------------------------------------------------------------- the place
+
+-- Where the player last left the bar, kept by the client in that character's rows of the addon's store and
+-- relative to the screen, so it follows a resized game window or a new interface scale. It is put back as
+-- the call is made and saved again at every drag. A session that has just ended raises; the bar is going.
+local function rememberPlace(session, barNumber, barWidget)
+    local ok, failure = pcall(function()
+        barWidget:remember("bar" .. barNumber, session:store())
+    end)
+    if not ok then
+        hafen.log():write(failure)
+    end
+end
+
+local function forgetPlace(barWidget)
+    local ok, failure = pcall(function()
+        barWidget:remember(nil)
+    end)
+    if not ok then
+        hafen.log():write(failure)
+    end
+end
+
 local function barsFor(session)
     local sessionBars = barsBySession[session]
     if not sessionBars then
@@ -174,16 +205,28 @@ function Bars.build(session, barNumber)
         return
     end
 
+    if not Config.ready(session) then
+        return -- the HUD is up but the character's saved variables are not yet: the next sync builds it
+    end
     local upright = Config.isUpright(session, barNumber)
     local buttonCount = Config.buttonCount(session, barNumber)
     local boxWidth, boxHeight = Layout.barBox(upright, buttonCount)
-    local hudSize = hud:size()
-    local record = Config.placed(session, barNumber, boxWidth, boxHeight, hudSize.w, hudSize.h)
-    if not record then
-        return -- the HUD is up but the character's saved variables are not yet: the next sync builds it
-    end
 
-    local barWidget = hafen.ui():widget():parent(hud):size(boxWidth, boxHeight):position(record.x, record.y)
+    -- Where it starts: the place an earlier version saved, else the middle of the screen for any bar but
+    -- Actionbar1, which the bottom-edge rule places. rememberPlace, at the end, puts back where the player
+    -- left it over either.
+    local barWidget = hafen.ui():widget():parent(hud):size(boxWidth, boxHeight)
+    local oldX, oldY = Config.oldPlace(session, barNumber)
+    if oldX then
+        barWidget:position(oldX, oldY)
+    elseif barNumber ~= Layout.MAIN_BAR then
+        local hudSize = hud:size()
+        local x, y = Layout.DEFAULT_X, Layout.DEFAULT_Y
+        if hudSize.w > 0 and hudSize.h > 0 then
+            x, y = Config.centre(boxWidth, boxHeight, hudSize.w, hudSize.h)
+        end
+        barWidget:position(x, y)
+    end
 
     -- The grip covers the whole bar and draws nothing. onPress runs first and consumes presses on loaded
     -- buttons; what is left (frame, margin, gutters, empty buttons) reaches the grip and drags the bar.
@@ -224,16 +267,9 @@ function Bars.build(session, barNumber)
     barWidget:on("Drop", function(event)
         onDrop(session, barNumber, upright, buttonCount, event)
     end)
-    barWidget:on("Dragged", function(event)
-        -- event:x()/y() is where it landed, the client's clamp included. The place is this character's own:
-        -- nothing of another login is touched here, which a handler running inside this tree could not do.
-        local dragged = Config.find(session, barNumber)
-        if not dragged then
-            return
-        end
-        dragged.x, dragged.y = event:x(), event:y()
-        Config.save(session)
-    end)
+
+    -- Last, after the size and the start, which are not saved: only a drag or Reset is.
+    rememberPlace(session, barNumber, barWidget)
 
     sessionBars[barNumber] = barWidget
 end
@@ -264,12 +300,21 @@ function Bars.forgetDeadSessions()
     end
 end
 
--- One login's copy of one bar to that character's record.
-function Bars.move(session, barNumber)
-    local record = Config.find(session, barNumber)
+-- Reset, for one login's copy of one bar: the place the client kept for it is deleted. Actionbar1 goes back to
+-- the bottom-edge rule, which is not saved; any other bar stands at Reset's place, written after remember so
+-- the client saves it as this character's.
+function Bars.resetPlace(session, barNumber, x, y)
     local sessionBars = barsBySession[session]
-    local barWidget = record and sessionBars and sessionBars[barNumber]
-    if barWidget and barWidget:exists() then
-        barWidget:position(record.x, record.y)
+    local barWidget = sessionBars and sessionBars[barNumber]
+    if not (barWidget and barWidget:exists()) then
+        return
+    end
+    forgetPlace(barWidget)
+    if barNumber == Layout.MAIN_BAR then
+        barWidget:position(nil)
+        rememberPlace(session, barNumber, barWidget)
+    else
+        rememberPlace(session, barNumber, barWidget)
+        barWidget:position(x, y)
     end
 end

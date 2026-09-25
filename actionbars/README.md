@@ -8,9 +8,11 @@ and pages between them. This addon puts that bar away and lets you have every pa
 
 1. Open **Options ▸ AddOns ▸ Actionbars**. There is a row per bar, twelve in all, and each row sets that
    bar to **off**, **flat** or **upright**, with a slider beside it for how many buttons it shows, 1 to 12.
-2. Set a bar to flat or upright and it appears in the middle of the screen. Drag it where you want it: the
-   frame, the gaps between the buttons and any empty button all pick the bar up, so only a button with
-   something in it keeps its click.
+2. Actionbar1 starts on the bottom edge of the screen, centred, where the client's own bar stood. Set
+   another bar to flat or upright and it appears in the middle of the screen. Drag a bar where you want it:
+   the frame, the gaps between the buttons and any empty button all pick the bar up, so only a button with
+   something in it keeps its click. Where you leave it is kept relative to the screen, so it stays put when
+   you resize the game window or change the interface scale.
 3. Drag an action onto a button to put it there. Left-click fires it, right-click empties it, and resting
    the pointer on one names what is in it.
 
@@ -39,14 +41,14 @@ key before any bar is. Bind your bar elsewhere if you fight with it.
 
 - **A row per bar** — off, flat or upright, and how many buttons it shows. A shorter bar starts from its
   first slot; the rest keep their contents and their hotkeys still fire.
-- **Reset bars position** — puts every bar back in the middle of the screen, one under the next, for every
-  character in the world. Use it when a bar has ended up off the edge after a change of interface scale or
-  window size, where there is nothing left on screen to drag.
+- **Reset bars position** — puts every bar back on the bottom edge of the screen, centred, one above the
+  next, and forgets where you had dragged them, for every character in the world. Use it to tidy the bars
+  up, or when one has ended up somewhere you cannot reach.
 
 ## Notes
 
 - Every character has their own bars: which are on, which way they stand, how many buttons and where each
-  one is. A character you have never played starts with Actionbar1 alone, flat, in the middle.
+  one is. A character you have never played starts with Actionbar1 alone, flat, on the bottom edge.
 - Twelve bars is every slot there is, which is why there is no thirteenth row.
 - What is in the slots belongs to the server and is never touched: turning a bar off leaves its contents
   alone, and disabling the addon gives the client's own bar back where it was.

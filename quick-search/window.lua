@@ -49,13 +49,16 @@ local HOVER_COLOR = {255, 255, 255, 40}
 local MARK_COLOR = {196, 150, 70, 90}   -- the field's own gold, so the mark is not read as the pointer
 
 local RESULTS_RULE = "[name=quick-search/results]"
+local WINDOW_RULE = "[name=quick-search/window]"
 local ARROW_KEYS = {previous = "Up", next = "Down"}
 
+-- Where the field opens until the user drags it: the middle of the screen, kept there as the game window is
+-- resized. A place the user dropped it at is put back by remember() in Window.open, a level above this rule.
 local sheet = hafen.ui():sheet()
+sheet:rule(WINDOW_RULE):anchor{to = "screen", at = "center"}
 sheet:install()
 
 local keybindings = hafen.client():options():keybindings()
-local savedPosition = hafen.store():var("state")  -- x, y: where the box was last dropped; unset until dragged
 
 local searchWindow = nil    -- the window holding the field, while open
 local resultsBox = nil      -- the list's box, while open
@@ -267,16 +270,11 @@ function Window.open()
   searchSession = session
   holdArrows()
 
-  -- Where it was last dropped, else the middle of the screen.
+  -- Named, which is what the middle-of-the-screen rule points at. No :position here: a place written in
+  -- pixels would stay put when the game window is resized.
   local boxWidth = WIDTH + PADDING * 2
   local boxHeight = FIELD_HEIGHT + PADDING * 2
-  local x, y = savedPosition.x, savedPosition.y
-  if x == nil or y == nil then
-    local screen = session:ui():root():size()
-    x = math.floor((screen.w - boxWidth) / 2)
-    y = math.floor((screen.h - boxHeight) / 2)
-  end
-  searchWindow = hafen.ui():window():size(boxWidth, boxHeight):position(x, y)
+  searchWindow = hafen.ui():window():name("window"):size(boxWidth, boxHeight)
   searchWindow:rule():bg(NO_CHROME.bg):border(NO_CHROME.border):closeButton(NO_CHROME.closeButton)
 
   -- The panel is added before the field so the field stands over it: the drag handle is offered only the
@@ -284,10 +282,11 @@ function Window.open()
   local panel = hafen.ui():widget():parent(searchWindow):name("box"):position(0, 0):size(boxWidth, boxHeight)
   panel:stock(BOX_LOOK)
   searchWindow:draggable(panel)
-  searchWindow:on("Dragged", function(event)
-    savedPosition.x, savedPosition.y = event:x(), event:y()
-    hafen.store():flush()
-  end)
+
+  -- Where the user last dropped it, one place for every character. The client keeps it relative to the
+  -- screen, so it follows a resized game window or a new interface scale. After the size, so only a drag is
+  -- saved.
+  searchWindow:remember("field", hafen.store())
 
   local searchField = hafen.ui():entry():parent(searchWindow):position(PADDING, PADDING)
   searchField:size(WIDTH, FIELD_HEIGHT):value("")

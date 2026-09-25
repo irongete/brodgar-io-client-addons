@@ -13,7 +13,8 @@ Press **Ctrl+Space**, type part of an action's name and run it without opening t
    Enter with nothing marked runs the first result.
 
 The list shows eight results at a time and the wheel scrolls it. **Escape** closes the field, and dragging
-it moves it — it opens where you left it next time.
+it moves it — it opens where you left it next time. The place is kept relative to the screen, so it stays
+put when you resize the game window or change the interface scale.
 
 ## Notes
 

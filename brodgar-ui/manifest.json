@@ -1,0 +1,11 @@
+{
+  "id": "brodgar-ui",
+  "name": "Brodgar UI",
+  "version": "0.1.0",
+  "author": "brodgar",
+  "description": "The minimap in a bare panel you drag and size anywhere, the chat as a window with a tab per channel, Ctrl+Space to find any action by name and run it, and an action bar for every page of the belt.",
+  "api_version": "1.0",
+  "bundle": true,
+  "dependencies": ["simple-minimap>=1.1.0", "simple-chat>=1.1.0", "quick-search>=1.0.3", "actionbars>=1.1.0"],
+  "files": ["main.lua"]
+}

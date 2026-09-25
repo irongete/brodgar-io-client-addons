@@ -1,7 +1,7 @@
 {
   "id": "themes",
   "name": "Themes",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "author": "irongete",
   "description": "Loads themes that change how the client looks. Pick one in Options > AddOns > Themes.",
   "api_version": "1.0",

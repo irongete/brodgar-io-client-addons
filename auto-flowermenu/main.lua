@@ -1,5 +1,6 @@
 -- Auto FlowerMenu: when a flowermenu opens, picks the first petal on the user's list that the menu offers.
 -- The list is edited in Options > AddOns > Auto FlowerMenu; the order is the priority.
+-- Holding the bypass modifier (Shift unless changed there) lets the menu open untouched.
 
 local ENTRY_WIDTH = 160
 local ADD_WIDTH = 50
@@ -13,6 +14,19 @@ local REMOVE_WIDTH = 24 -- a Button narrower than 24 clips its art
 local settings = hafen.store():var("settings")
 if settings.labels == nil then
     settings.labels = {}
+end
+
+-- The modifier that, held as the menu opens, skips the pick. "None" never skips.
+local BYPASS_CHOICES = { "Shift", "Ctrl", "Alt", "None" }
+local BYPASS_DEFAULT = "Shift"
+
+local function bypassModifier()
+    for _, choice in ipairs(BYPASS_CHOICES) do
+        if settings.bypass == choice then
+            return choice
+        end
+    end
+    return BYPASS_DEFAULT
 end
 
 local function save()
@@ -59,6 +73,19 @@ end
 
 -- ---------------------------------------------------------------- picking
 
+local function bypassHeld()
+    local mouse = hafen.ui():mouse()
+    local modifier = bypassModifier()
+    if modifier == "Shift" then
+        return mouse:shift()
+    elseif modifier == "Ctrl" then
+        return mouse:ctrl()
+    elseif modifier == "Alt" then
+        return mouse:alt()
+    end
+    return false
+end
+
 local function labelToPick(petals)
     for _, wanted in ipairs(settings.labels) do
         for _, petal in ipairs(petals) do
@@ -71,6 +98,9 @@ local function labelToPick(petals)
 end
 
 hafen.event():on("FlowerMenuAdded", function(petals, session)
+    if bypassHeld() then
+        return -- the user is choosing by hand this time
+    end
     local chosen = labelToPick(petals)
     if chosen == nil then
         return
@@ -146,6 +176,13 @@ end
 
 options:panel(function(root)
     root:gap(4)
+    hafen.ui():label():parent(root):text("Hold this key as the menu opens to choose by hand instead:")
+    local bypassRadio = hafen.ui():radio():parent(root):rows(BYPASS_CHOICES):value(bypassModifier())
+    bypassRadio:on("Changed", function(choice)
+        settings.bypass = choice
+        save()
+    end)
+
     hafen.ui():label():parent(root):text("Petals picked automatically, in order of priority:")
     hafen.ui():label():parent(root):text("The first one on the list that the flowermenu offers is the one picked.")
 

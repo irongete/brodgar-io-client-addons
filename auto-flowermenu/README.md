@@ -14,6 +14,10 @@ opens as usual, for you to decide.
 **The order is the priority.** With `Harvest` above `Pick`, a ring offering both is harvested; a ring
 offering only `Pick` is picked.
 
+**Hold Shift to choose by hand.** A ring that opens while Shift is held is left alone, so you can pick
+something other than what the list would. The key is chosen on the same page: Shift, Ctrl, Alt, or None to
+never skip.
+
 ## Notes
 
 - A caption is matched whole and without regard to case, so `pick` and `Pick` are the same entry.

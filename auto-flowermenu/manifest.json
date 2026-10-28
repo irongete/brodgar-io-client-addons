@@ -1,9 +1,9 @@
 {
   "id": "auto-flowermenu",
   "name": "Auto FlowerMenu",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "author": "irongete",
-  "description": "Whenever a Flower Menu opens, it selects the first matching petal from your list. You can customize this list by adding any petal caption in Options > AddOns > Auto FlowerMenu and ordering them by priority.",
+  "description": "Whenever a Flower Menu opens, it selects the first matching petal from your list. You can customize this list by adding any petal caption in Options > AddOns > Auto FlowerMenu and ordering them by priority. Hold Shift (configurable) as a menu opens to choose by hand.",
   "api_version": "1.0",
   "files": ["main.lua"],
   "permissions": ["flowermenu.select"]

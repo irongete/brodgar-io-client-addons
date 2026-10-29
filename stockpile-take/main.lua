@@ -51,8 +51,12 @@ local function addControls(pileBox)
     withdraw(pileBox, math.min(amount, MOST_PER_PRESS))
   end
 
-  takeButton:on("Pressed", take)
-  amountField:on("Submitted", take)
+  -- A control's notification holds a widget tree, and Enter in the field arrives holding the addon layer's
+  -- while the field and the pile are the character's: reading them there is refused as a second tree. The
+  -- next step holds none, so the press only schedules the take.
+  local function takeOnStep() hafen.timer():after(0, take) end
+  takeButton:on("Pressed", takeOnStep)
+  amountField:on("Submitted", takeOnStep)
 end
 
 -- One subscription per character's tree, so every login needs its own. The selector is chained because a
